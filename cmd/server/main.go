@@ -56,12 +56,17 @@ func handler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if parts[3] == "" {
+		http.Error(res, "Invalid request format", http.StatusNotFound)
+		return
+	}
 	if parts[2] == "gauge" {
 		//MemStorage := &MemStorage{counterSlice: make([]counter, 0), gaugeSlice: make([]gauge, 0)}
 
 		partFloat, Error := strconv.ParseFloat(parts[4], 64)
 		if Error != nil {
 			http.Error(res, "Invalid metric value", http.StatusBadRequest)
+			return
 		}
 
 		globalMemStorage.addGauge(parts[3], partFloat)
@@ -77,6 +82,7 @@ func handler(res http.ResponseWriter, req *http.Request) {
 		partInt, Error := strconv.ParseInt(parts[4], 0, 64)
 		if Error != nil {
 			http.Error(res, "Invalid metric value", http.StatusBadRequest)
+			return
 		}
 
 		globalMemStorage.addCounter(parts[3], partInt)

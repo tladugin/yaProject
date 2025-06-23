@@ -56,10 +56,11 @@ func handler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if parts[3] == "" {
+	if parts[2] != "counter" && parts[2] != "gauge" {
 		http.Error(res, "Invalid request format", http.StatusNotFound)
 		return
 	}
+
 	if parts[2] == "gauge" {
 		//MemStorage := &MemStorage{counterSlice: make([]counter, 0), gaugeSlice: make([]gauge, 0)}
 
@@ -73,11 +74,11 @@ func handler(res http.ResponseWriter, req *http.Request) {
 		res.WriteHeader(http.StatusOK)
 
 		//fmt.Printf("Gauge metrics=================== \n")
-		output := "Gauge metrics:\r\n"
+		/*output := "Gauge metrics:\r\n"
 		for _, element := range globalMemStorage.gaugeSlice {
 			output += fmt.Sprintf("Name: %s, Value: %.1f\n", element.Name, element.Value)
 		}
-		res.Write([]byte(output))
+		res.Write([]byte(output))*/
 	} else if parts[2] == "counter" {
 		partInt, Error := strconv.ParseInt(parts[4], 0, 64)
 		if Error != nil {
@@ -88,15 +89,12 @@ func handler(res http.ResponseWriter, req *http.Request) {
 		globalMemStorage.addCounter(parts[3], partInt)
 		res.WriteHeader(http.StatusOK)
 		//fmt.Printf("Counter metrics=================== \n")
-		output := "Counter metrics:\r\n"
+		/*output := "Counter metrics:\r\n"
 		for _, element := range globalMemStorage.counterSlice {
 
 			output += fmt.Sprintf("Name: %s, Value: %d\n", element.Name, element.Value)
 		}
-		res.Write([]byte(output))
-	} else if parts[2] != "counter" && parts[2] != "gauge" {
-		http.Error(res, "Invalid request format", http.StatusNotFound)
-		return
+		res.Write([]byte(output))*/
 	}
 	/*else if parts[3] == "" {
 		http.Error(res, "Invalid request path", http.StatusNotFound)

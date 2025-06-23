@@ -52,12 +52,12 @@ func handler(res http.ResponseWriter, req *http.Request) {
 
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 5 {
-		http.Error(res, "Invalid request format", http.StatusBadRequest)
+		http.Error(res, "Invalid request format", http.StatusNotFound)
 		return
 	}
 
 	if parts[2] != "counter" && parts[2] != "gauge" {
-		http.Error(res, "Invalid request format", http.StatusNotFound)
+		http.Error(res, "Invalid request format", http.StatusBadRequest)
 		return
 	}
 

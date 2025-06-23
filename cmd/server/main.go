@@ -94,8 +94,9 @@ func handler(res http.ResponseWriter, req *http.Request) {
 			output += fmt.Sprintf("Name: %s, Value: %d\n", element.Name, element.Value)
 		}
 		res.Write([]byte(output))
-	} else {
+	} else if parts[2] != "counter" && parts[2] != "gauge" {
 		http.Error(res, "Invalid request format", http.StatusNotFound)
+		return
 	}
 	/*else if parts[3] == "" {
 		http.Error(res, "Invalid request path", http.StatusNotFound)

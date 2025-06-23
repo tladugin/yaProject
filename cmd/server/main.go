@@ -78,7 +78,7 @@ func handler(res http.ResponseWriter, req *http.Request) {
 		for _, element := range globalMemStorage.gaugeSlice {
 			output += fmt.Sprintf("Name: %s, Value: %.1f\n", element.Name, element.Value)
 		}
-		res.Write([]byte(output))
+		fmt.Println([]byte(output))
 
 	} else if parts[2] == "counter" {
 		partInt, Error := strconv.ParseInt(parts[4], 0, 64)
@@ -95,7 +95,7 @@ func handler(res http.ResponseWriter, req *http.Request) {
 
 			output += fmt.Sprintf("Name: %s, Value: %d\n", element.Name, element.Value)
 		}
-		res.Write([]byte(output))
+		fmt.Println([]byte(output))
 	}
 	/*else if parts[3] == "" {
 		http.Error(res, "Invalid request path", http.StatusNotFound)

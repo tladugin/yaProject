@@ -46,13 +46,13 @@ func (s *MemStorage) addCounter(name string, value int64) {
 func handler(res http.ResponseWriter, req *http.Request) {
 
 	if req.Method != http.MethodPost {
-		http.Error(res, "Only POST requests are allowed!", http.StatusNotFound)
+		http.Error(res, "Only POST requests are allowed!", http.StatusMethodNotAllowed)
 		return
 	}
 
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 5 {
-		http.Error(res, "Invalid request format", http.StatusNotFound)
+		http.Error(res, "Invalid request format", http.StatusBadRequest)
 		return
 	}
 

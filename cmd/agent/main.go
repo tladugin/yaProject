@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/tladugin/yaProject.git/internal/repository"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net/http"
 	"runtime"
@@ -41,7 +41,7 @@ func sendMetric(metricType string, storage *repository.MemStorage, i int) error 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		bodyBytes, _ := ioutil.ReadAll(resp.Body)
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("metric send failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 

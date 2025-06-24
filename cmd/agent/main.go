@@ -105,7 +105,7 @@ func main() {
 			// Если канал resumeCh получил значение, значит метрики были обновлены,
 			// и мы можем отправлять их на сервер
 			fmt.Println("Sending metrics...")
-			for i, _ := range storage.GaugeSlice() {
+			for i := range storage.GaugeSlice() {
 				err := sendMetric("gauge", storage, i)
 				if err != nil {
 					fmt.Println("Error sending metric:", err)
@@ -113,7 +113,7 @@ func main() {
 				}
 
 			}
-			for i, _ := range storage.CounterSlice() {
+			for i := range storage.CounterSlice() {
 				err := sendMetric("counter", storage, i)
 				if err != nil {
 					fmt.Println("Error sending metric:", err)

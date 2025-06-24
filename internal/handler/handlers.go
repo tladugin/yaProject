@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"net/http"
 	"strconv"
@@ -50,7 +51,7 @@ func (s *Server) Handler(res http.ResponseWriter, req *http.Request) {
 		s.storage.AddGauge(parts[3], partFloat)
 		res.WriteHeader(http.StatusOK)
 
-		//fmt.Println(s.storage.GaugeSlice())
+		fmt.Println(s.storage.GaugeSlice())
 
 	} else if parts[2] == "counter" {
 		partInt, Error := strconv.ParseInt(parts[4], 0, 64)
@@ -62,7 +63,7 @@ func (s *Server) Handler(res http.ResponseWriter, req *http.Request) {
 		s.storage.AddCounter(parts[3], partInt)
 		res.WriteHeader(http.StatusOK)
 
-		//fmt.Println(s.storage.CounterSlice())
+		fmt.Println(s.storage.CounterSlice())
 
 	}
 

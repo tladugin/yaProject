@@ -18,9 +18,15 @@ const (
 )
 
 func sendMetric(metricType string, storage *repository.MemStorage, i int) error {
+	var url string
+	if metricType == "gauge" {
+		url = fmt.Sprintf("%s%s/%s/%f", serverURL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
+	}
+	if metricType == "counter" {
+		url = fmt.Sprintf("%s%s/%s/%d", serverURL, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
+	}
 
-	url := fmt.Sprintf("%s%s/%s/%f", serverURL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		return err
 	}
@@ -44,22 +50,17 @@ func sendMetric(metricType string, storage *repository.MemStorage, i int) error 
 func main() {
 	storage := repository.NewMemStorage()
 
-	for i, _ := range storage.GaugeSlice() {
-		err := sendMetric("gauge", storage, i)
-		if err != nil {
-			fmt.Println("Error sending metric:", err)
-		}
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
 
-	}
-	for i, _ := range storage.CounterSlice() {
-		err := sendMetric("counter", storage, i)
-		if err != nil {
-			fmt.Println("Error sending metric:", err)
-		}
-		for {
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
+	ticker := time.NewTicker(pollInterval)
+	pauseCh := make(chan struct{})
+	resumeCh := make(chan struct{})
 
+	go func() {
+		for range ticker.C {
+			// Обновляем метрики здесь
+			fmt.Println("Updating metrics...")
 			storage.AddGauge("Alloc:", float64(m.Alloc))
 			storage.AddGauge("BuckHashSys:", float64(m.BuckHashSys))
 			storage.AddGauge("Frees:", float64(m.Frees))
@@ -92,9 +93,45 @@ func main() {
 
 			storage.AddCounter("PollCount:", 1)
 
-			//fmt.Println(storage.CounterSlice())
-			time.Sleep(pollInterval)
+			// После завершения обновления, возобновляем отправку метрик на сервер
+			resumeCh <- struct{}{}
 		}
+	}()
 
+	t := time.NewTicker(reportInterval)
+	for range t.C {
+		select {
+		case <-resumeCh:
+			// Если канал resumeCh получил значение, значит метрики были обновлены,
+			// и мы можем отправлять их на сервер
+			fmt.Println("Sending metrics...")
+			for i, _ := range storage.GaugeSlice() {
+				err := sendMetric("gauge", storage, i)
+				if err != nil {
+					fmt.Println("Error sending metric:", err)
+					fmt.Println(storage.GaugeSlice()[i])
+				}
+
+			}
+			for i, _ := range storage.CounterSlice() {
+				err := sendMetric("counter", storage, i)
+				if err != nil {
+					fmt.Println("Error sending metric:", err)
+					fmt.Println(storage.CounterSlice()[i])
+				}
+
+			} // отправляем метрики на сервер
+		case <-pauseCh:
+			// Если канал pauseCh получил значение, ставим отправку метрик на паузу
+			fmt.Println("Pausing metric sending...")
+			t.Stop()
+			time.Sleep(pollInterval)
+			t.Reset(reportInterval) // возобновляем отправку метрик на сервер после завершения обновления
+		}
 	}
+
+	// Для остановки горутины, которая отвечает за обновление метрик,
+	// мы можем закрыть канал pauseCh и дождаться ее окончания
+	close(pauseCh)
+	<-ticker.C
 }

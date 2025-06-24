@@ -1,16 +1,26 @@
 package handler
 
 import (
-	"fmt"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"net/http"
 	"strconv"
 	"strings"
 )
 
-func Handler(res http.ResponseWriter, req *http.Request) {
+// создаем функцию NewServer которая возвращает указать на нашу структуру Server, которая содержит storage
+func NewServer(s *repository.MemStorage) *Server {
+	return &Server{
+		storage: s,
+	}
 
-	memstorage := repository.NewMemStorage()
+}
+
+type Server struct {
+	storage *repository.MemStorage
+}
+
+// функция принимает указатель на структуру Server, что позволяет обрашаться к storage
+func (s *Server) Handler(res http.ResponseWriter, req *http.Request) {
 
 	if req.Method != http.MethodPost {
 		http.Error(res, "Only POST requests are allowed!", http.StatusMethodNotAllowed)
@@ -37,15 +47,10 @@ func Handler(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		memstorage.AddGauge(parts[3], partFloat)
+		s.storage.AddGauge(parts[3], partFloat)
 		res.WriteHeader(http.StatusOK)
 
-		//fmt.Printf("Gauge metrics=================== \n")
-		output := "Gauge metrics:\r\n"
-		for _, element := range memstorage.GaugeSlice() {
-			output += fmt.Sprintf("Name: %s, Value: %.1f\n", element.Name, element.Value)
-		}
-		fmt.Println([]byte(output))
+		//fmt.Println(s.storage.GaugeSlice())
 
 	} else if parts[2] == "counter" {
 		partInt, Error := strconv.ParseInt(parts[4], 0, 64)
@@ -54,21 +59,11 @@ func Handler(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		memstorage.AddCounter(parts[3], partInt)
+		s.storage.AddCounter(parts[3], partInt)
 		res.WriteHeader(http.StatusOK)
-		//fmt.Printf("Counter metrics=================== \n")
-		output := "Counter metrics:\r\n"
-		for _, element := range memstorage.CounterSlice() {
 
-			output += fmt.Sprintf("Name: %s, Value: %d\n", element.Name, element.Value)
-		}
-		fmt.Println([]byte(output))
+		//fmt.Println(s.storage.CounterSlice())
+
 	}
-	/*else if parts[3] == "" {
-		http.Error(res, "Invalid request path", http.StatusNotFound)
-	} else if parts[2] != "gauge" && parts[2] != "counter" {
-		http.Error(res, "Invalid metric type", http.StatusBadRequest)
-	} else {
-		http.Error(res, "Metrics received!", http.StatusOK)
-	}*/
+
 }

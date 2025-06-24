@@ -16,6 +16,7 @@ type MemStorage struct {
 func (s *MemStorage) GaugeSlice() []gauge {
 	return s.gaugeSlice
 }
+
 func (s *MemStorage) CounterSlice() []counter {
 	return s.counterSlice
 }
@@ -27,6 +28,7 @@ func NewMemStorage() *MemStorage {
 }
 
 func (s *MemStorage) AddGauge(name string, value float64) {
+	//fmt.Println(name, value)
 	for i, m := range s.gaugeSlice {
 		if m.Name == name {
 			s.gaugeSlice[i].Value = value

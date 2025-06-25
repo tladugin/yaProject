@@ -23,7 +23,7 @@ type Server struct {
 
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 	fmt.Fprint(res, "<html><body><ul>")
-	for m, _ := range s.storage.GaugeSlice() {
+	for m := range s.storage.GaugeSlice() {
 
 		fmt.Fprintf(res, "<li>%s: %v</li>", s.storage.GaugeSlice()[m].Name, s.storage.GaugeSlice()[m].Value)
 		/*
@@ -34,7 +34,7 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 		*/
 	}
 
-	for m, _ := range s.storage.CounterSlice() {
+	for m := range s.storage.CounterSlice() {
 
 		fmt.Fprintf(res, "<li>%s: %v</li>", s.storage.CounterSlice()[m].Name, s.storage.CounterSlice()[m].Value)
 		/*
@@ -52,6 +52,9 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 // функция принимает указатель на структуру Server, что позволяет обрашаться к storage
 func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 
+	if req.Method != "POST" {
+		res.WriteHeader(http.StatusMethodNotAllowed)
+	}
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 5 {
 		http.Error(res, "Invalid request format", http.StatusNotFound)
@@ -86,6 +89,9 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 
 }
 func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
+	if req.Method != "GET" {
+		http.Error(res, "Invalid request format", http.StatusBadRequest)
+	}
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 4 {
 		http.Error(res, "Invalid request format", http.StatusNotFound)

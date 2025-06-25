@@ -1,11 +1,29 @@
 package main
 
 import (
+	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/repository"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
+func createTestServer() *httptest.Server {
+	storage := repository.NewMemStorage()
+	s := handler.NewServer(storage)
+	mux := http.NewServeMux()
+	mux.HandleFunc(`/`, s.PostHandler)
+
+	return httptest.NewServer(mux)
+}
 func Test_sendMetric(t *testing.T) {
+
+	server := createTestServer()
+	defer server.Close()
+
+	testServerURL := server.URL
+	testServerURL += "/update/"
+
 	testGaugeStorage := new(repository.MemStorage)
 
 	testGaugeStorage.AddGauge("Alloc", 100.1111)
@@ -26,6 +44,7 @@ func Test_sendMetric(t *testing.T) {
 		metricType string
 		storage    *repository.MemStorage
 		i          int
+		url        string
 	}
 	tests := []struct {
 		name    string
@@ -34,17 +53,17 @@ func Test_sendMetric(t *testing.T) {
 	}{ // TODO: Add test cases.
 		{
 			name:    "gauge_values",
-			args:    args{"gauge", testGaugeStorage, i},
+			args:    args{"gauge", testGaugeStorage, i, testServerURL},
 			wantErr: false,
 		},
 		{
 			name:    "counter_values",
-			args:    args{"counter", testCounterStorage, i},
+			args:    args{"counter", testCounterStorage, i, testServerURL},
 			wantErr: false,
 		},
 		{
 			name:    "wrong_metric_type",
-			args:    args{"unknown", testGaugeStorage, i},
+			args:    args{"unknown", testGaugeStorage, i, testServerURL},
 			wantErr: true,
 		},
 	}
@@ -52,8 +71,9 @@ func Test_sendMetric(t *testing.T) {
 	for _, tt := range tests {
 		for i := 0; i < 4; i++ {
 			t.Run(tt.name, func(t *testing.T) {
-				if err := sendMetric(tt.args.metricType, tt.args.storage, i); (err != nil) != tt.wantErr {
+				if err := sendMetric(testServerURL, tt.args.metricType, tt.args.storage, i); (err != nil) != tt.wantErr {
 					t.Errorf("sendMetric() error = %v, wantErr %v", err, tt.wantErr)
+
 				}
 			})
 

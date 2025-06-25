@@ -25,7 +25,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc(`/update/`, s.PostHandler)
 	mux.HandleFunc(`/value/`, s.GetHandler)
-	mux.HandleFunc(`/`, s.MainPage)
+	//mux.HandleFunc(`/`, s.MainPage)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {})
 	fmt.Println("Starting server on :8080")

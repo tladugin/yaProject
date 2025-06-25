@@ -17,18 +17,18 @@ const (
 	contentType    = "Content-Type: text/plain"
 )
 
-func sendMetric(serverUrl string, metricType string, storage *repository.MemStorage, i int) error {
-	var url string
+func sendMetric(URL string, metricType string, storage *repository.MemStorage, i int) error {
+	var sendAddr string
 	if metricType == "gauge" {
-		url = fmt.Sprintf("%s%s/%s/%f", serverUrl, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
+		sendAddr = fmt.Sprintf("%s%s/%s/%f", URL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
 		//println(url)
 	}
 	if metricType == "counter" {
-		url = fmt.Sprintf("%s%s/%s/%d", serverUrl, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
+		sendAddr = fmt.Sprintf("%s%s/%s/%d", URL, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
 		//println(url)
 	}
 
-	req, err := http.NewRequest("POST", url, nil)
+	req, err := http.NewRequest("POST", sendAddr, nil)
 	if err != nil {
 		return err
 	}

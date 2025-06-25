@@ -24,32 +24,30 @@ type Server struct {
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 	if req.Method != "GET" {
 		res.WriteHeader(http.StatusMethodNotAllowed)
-	}
-	if req.URL.Path != "/" {
+	} else if req.URL.Path != "/" {
 		res.WriteHeader(http.StatusNotFound)
+	} else {
+		fmt.Fprint(res, "<html><body><ul>")
+		for m := range s.storage.GaugeSlice() {
+
+			fmt.Fprintf(res, "<li>%s: %v</li>", s.storage.GaugeSlice()[m].Name, s.storage.GaugeSlice()[m].Value)
+
+			//res.Header().Set("Content-Type", "application/json")
+			//json.NewEncoder(res).Encode(s.storage.GaugeSlice()[m])
+			//res.WriteHeader(http.StatusOK)
+		}
+
+		for m := range s.storage.CounterSlice() {
+
+			fmt.Fprintf(res, "<li>%s: %v</li>", s.storage.CounterSlice()[m].Name, s.storage.CounterSlice()[m].Value)
+
+			//res.Header().Set("Content-Type", "application/json")
+			//json.NewEncoder(res).Encode(s.storage.CounterSlice()[m])
+			//res.WriteHeader(http.StatusOK)
+
+		}
+		fmt.Fprint(res, "</ul></body></html>")
 	}
-	fmt.Fprint(res, "<html><body><ul>")
-	for m := range s.storage.GaugeSlice() {
-
-		fmt.Fprintf(res, "<li>%s: %v</li>", s.storage.GaugeSlice()[m].Name, s.storage.GaugeSlice()[m].Value)
-
-		//res.Header().Set("Content-Type", "application/json")
-		//json.NewEncoder(res).Encode(s.storage.GaugeSlice()[m])
-		//res.WriteHeader(http.StatusOK)
-
-	}
-
-	for m := range s.storage.CounterSlice() {
-
-		fmt.Fprintf(res, "<li>%s: %v</li>", s.storage.CounterSlice()[m].Name, s.storage.CounterSlice()[m].Value)
-
-		//res.Header().Set("Content-Type", "application/json")
-		//json.NewEncoder(res).Encode(s.storage.CounterSlice()[m])
-		//res.WriteHeader(http.StatusOK)
-
-	}
-	fmt.Fprint(res, "</ul></body></html>")
-
 }
 
 // функция принимает указатель на структуру Server, что позволяет обрашаться к storage

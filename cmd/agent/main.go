@@ -13,7 +13,7 @@ import (
 const (
 	pollInterval   = 2 * time.Second
 	reportInterval = 10 * time.Second
-	serverUrl      = "http://localhost:8080/update/"
+	serverURL      = "http://localhost:8080/update/"
 	contentType    = "Content-Type: text/plain"
 )
 
@@ -108,7 +108,7 @@ func main() {
 			// и мы можем отправлять их на сервер
 			fmt.Println("Sending metrics...")
 			for i := range storage.GaugeSlice() {
-				err := sendMetric(serverUrl, "gauge", storage, i)
+				err := sendMetric(serverURL, "gauge", storage, i)
 				if err != nil {
 					fmt.Println(storage.GaugeSlice()[i])
 					fmt.Println("Error sending metric:", err)
@@ -117,7 +117,7 @@ func main() {
 
 			}
 			for i := range storage.CounterSlice() {
-				err := sendMetric(serverUrl, "counter", storage, i)
+				err := sendMetric(serverURL, "counter", storage, i)
 				if err != nil {
 					fmt.Println(storage.CounterSlice()[i])
 					fmt.Println("Error sending metric:", err)

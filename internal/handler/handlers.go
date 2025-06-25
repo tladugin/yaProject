@@ -22,6 +22,9 @@ type Server struct {
 }
 
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
+	if req.Method != "GET" {
+		res.WriteHeader(http.StatusMethodNotAllowed)
+	}
 	fmt.Fprint(res, "<html><body><ul>")
 	for m := range s.storage.GaugeSlice() {
 

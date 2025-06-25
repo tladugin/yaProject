@@ -13,17 +13,19 @@ import (
 const (
 	pollInterval   = 2 * time.Second
 	reportInterval = 10 * time.Second
-	serverURL      = "http://localhost:8080/update/"
+	serverUrl      = "http://localhost:8080/update/"
 	contentType    = "Content-Type: text/plain"
 )
 
-func sendMetric(metricType string, storage *repository.MemStorage, i int) error {
+func sendMetric(serverUrl string, metricType string, storage *repository.MemStorage, i int) error {
 	var url string
 	if metricType == "gauge" {
-		url = fmt.Sprintf("%s%s/%s/%f", serverURL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
+		url = fmt.Sprintf("%s%s/%s/%f", serverUrl, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
+		//println(url)
 	}
 	if metricType == "counter" {
-		url = fmt.Sprintf("%s%s/%s/%d", serverURL, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
+		url = fmt.Sprintf("%s%s/%s/%d", serverUrl, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
+		//println(url)
 	}
 
 	req, err := http.NewRequest("POST", url, nil)
@@ -106,7 +108,7 @@ func main() {
 			// и мы можем отправлять их на сервер
 			fmt.Println("Sending metrics...")
 			for i := range storage.GaugeSlice() {
-				err := sendMetric("gauge", storage, i)
+				err := sendMetric(serverUrl, "gauge", storage, i)
 				if err != nil {
 					fmt.Println(storage.GaugeSlice()[i])
 					fmt.Println("Error sending metric:", err)
@@ -115,7 +117,7 @@ func main() {
 
 			}
 			for i := range storage.CounterSlice() {
-				err := sendMetric("counter", storage, i)
+				err := sendMetric(serverUrl, "counter", storage, i)
 				if err != nil {
 					fmt.Println(storage.CounterSlice()[i])
 					fmt.Println("Error sending metric:", err)

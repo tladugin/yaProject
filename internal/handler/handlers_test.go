@@ -8,6 +8,14 @@ import (
 	"testing"
 )
 
+func createTestServer() *httptest.Server {
+	storage := repository.NewMemStorage()
+	s := NewServer(storage)
+	mux := http.NewServeMux()
+	mux.HandleFunc(`/`, s.PostHandler)
+
+	return httptest.NewServer(mux)
+}
 func TestNewServer(t *testing.T) {
 	type args struct {
 		s *repository.MemStorage
@@ -54,6 +62,15 @@ func TestServer_GetHandler(t *testing.T) {
 }
 
 func TestServer_PostHandler(t *testing.T) {
+
+	storage := repository.NewMemStorage()
+	s := NewServer(storage)
+	server := createTestServer()
+	defer server.Close()
+
+	testServerURL := server.URL
+	//testServerURL += "/update/"
+
 	type fields struct {
 		storage *repository.MemStorage
 	}
@@ -61,8 +78,6 @@ func TestServer_PostHandler(t *testing.T) {
 		res http.ResponseWriter
 		req *http.Request
 	}
-	storage := repository.NewMemStorage()
-	s := NewServer(storage)
 
 	testStruct := []struct {
 		name string
@@ -78,11 +93,12 @@ func TestServer_PostHandler(t *testing.T) {
 	for _, tt := range testStruct {
 		t.Run(tt.name, func(t *testing.T) {
 
-			req, err := http.NewRequest("POST", tt.url, nil)
+			req, err := http.NewRequest("POST", testServerURL+tt.url, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			res := httptest.NewRecorder()
+
 			s.PostHandler(res, req)
 			if res.Code != tt.want {
 				t.Errorf("Expected status code %d, but got %d", tt.want, res.Code)

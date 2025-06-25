@@ -59,7 +59,7 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 	}
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 5 {
-		http.Error(res, "Invalid request format", http.StatusNotFound)
+		http.Error(res, "Invalid request format", http.StatusMethodNotAllowed)
 		return
 	}
 

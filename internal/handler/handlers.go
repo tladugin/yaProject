@@ -47,7 +47,6 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 
 		}
 		fmt.Fprint(res, "</ul></body></html>")
-		res.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -59,7 +58,7 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 	}
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 5 {
-		http.Error(res, "Invalid request format", http.StatusMethodNotAllowed)
+		http.Error(res, "Invalid request format", http.StatusNotFound)
 		return
 	}
 
@@ -85,7 +84,7 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 
 	//fmt.Println(s.storage.CounterSlice())
 	default:
-		http.Error(res, "Invalid request format", http.StatusMethodNotAllowed)
+		http.Error(res, "Invalid request format", http.StatusBadRequest)
 		return
 	}
 

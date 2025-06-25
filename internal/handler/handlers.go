@@ -49,10 +49,10 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 		s.storage.AddCounter(parts[3], partInt)
 		res.WriteHeader(http.StatusOK)
 
-		//fmt.Println(s.storage.CounterSlice())
-		/*default:
+	//fmt.Println(s.storage.CounterSlice())
+	default:
 		http.Error(res, "Invalid request format", http.StatusBadRequest)
-		return*/
+		return
 	}
 
 }
@@ -83,6 +83,7 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 		}
 	default:
 		http.Error(res, "Invalid request format", http.StatusBadRequest)
+		return
 
 	}
 }

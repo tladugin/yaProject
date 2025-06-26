@@ -63,7 +63,9 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 	switch metric {
 
 	case "gauge":
+		//if partFloat, err := strconv. ParseFloat(v, 64); err == nil { fmt. Printf("%T, %v\n", s, s)}
 		partFloat, Error := strconv.ParseFloat(value, 64)
+		//fmt.Printf("%f", partFloat)
 		if Error != nil {
 			http.Error(res, "Invalid metric value", http.StatusBadRequest)
 			return
@@ -103,7 +105,7 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 			if m.Name == name {
 				getCheck = true
 				//fmt.Fprintf(res, "%s %f", s.storage.GaugeSlice()[i].Name, s.storage.GaugeSlice()[i].Value)
-				fmt.Fprintf(res, "%f", s.storage.GaugeSlice()[i].Value)
+				fmt.Fprintf(res, "%.f", s.storage.GaugeSlice()[i].Value)
 				res.WriteHeader(http.StatusOK)
 
 			}

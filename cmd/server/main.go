@@ -18,11 +18,11 @@ func main() {
 	r.Route("/", func(r chi.Router) {
 		r.Get("/", s.MainPage)
 		r.Get("/value/{metric}/{name}", s.GetHandler)
+		r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
 	})
-	r.Route("/update", func(r chi.Router) {
+	//r.Route("/update", func(r chi.Router) {
 
-		r.Post("/{metric}/{name}/{value}", s.PostHandler)
-	})
+	//})
 	//r.Route("/value", func(r chi.Router) {
 	//	r.Get("/{metric}/{name}", s.GetHandler)
 	//})

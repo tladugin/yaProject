@@ -14,11 +14,12 @@ func createTestServer() *httptest.Server {
 	s := NewServer(storage)
 
 	r := chi.NewRouter()
-	r.Route("/", func(r chi.Router) {
-		r.Get("/", s.MainPage)
-		r.Get("/value/{metric}/{name}", s.GetHandler)
-		r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
-	})
+	//r.Route("/", func(r chi.Router) {
+	//	r.Get("/", s.MainPage)
+	//	r.Get("/value/{metric}/{name}", s.GetHandler)
+	r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
+
+	//})
 
 	return httptest.NewServer(r)
 }
@@ -73,19 +74,11 @@ func TestServer_PostHandler(t *testing.T) {
 	s := NewServer(storage)
 	server := createTestServer()
 	defer server.Close()
-	//testServerURL := server.URL
+	testServerURL := server.URL
 
 	r := chi.NewRouter()
 
 	//testServerURL += "/update/"
-
-	type fields struct {
-		storage *repository.MemStorage
-	}
-	type args struct {
-		res http.ResponseWriter
-		req *http.Request
-	}
 
 	testStruct := []struct {
 		name string
@@ -95,8 +88,8 @@ func TestServer_PostHandler(t *testing.T) {
 		// TODO: Add test cases.
 		{name: "gauge", url: "/update/gauge/Alloc/12.34", want: http.StatusOK},
 		{name: "counter", url: "/update/counter/PollCount/567890", want: http.StatusOK},
-		{name: "invalid_metric_type", url: "/update/unknown/metrics/type/123", want: http.StatusBadRequest},
-		{name: "invalid_path_format", url: "/update/gauge/Alloc", want: http.StatusBadRequest},
+		{name: "invalid_metric_type", url: "/update/unknown/metrics/123", want: http.StatusBadRequest},
+		{name: "invalid_path_format", url: "/update/gauge/Alloc", want: http.StatusNotFound},
 	}
 	for _, tt := range testStruct {
 		t.Run(tt.name, func(t *testing.T) {
@@ -106,13 +99,24 @@ func TestServer_PostHandler(t *testing.T) {
 			//if err != nil {
 			//	t.Fatal(err)
 			//}
-			//res := httptest.NewRecorder()
+			res := httptest.NewRecorder()
 
-			r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
+			r.Post(tt.url, s.PostHandler)
 
-			//s.PostHandler(res, req)
-			//if res.Code != tt.want {
-			//	t.Errorf("Expected status code %d, but got %d", tt.want, res.Code)
+			req, err := http.NewRequest("POST", testServerURL+tt.url, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if resp.StatusCode != tt.want {
+				t.Errorf("Expected status code %d, but got %d", tt.want, res.Code)
+
+			}
 		})
 	}
 }

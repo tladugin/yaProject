@@ -6,6 +6,7 @@ import (
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // создаем функцию NewServer которая возвращает указать на нашу структуру Server, которая содержит storage
@@ -48,6 +49,10 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 
 	//params := chi.URLParam(req, "URL")
+	parts := strings.Split(req.URL.Path, "/")
+	if len(parts) != 5 {
+		http.Error(res, "Invalid URL", http.StatusBadRequest)
+	}
 	metric := chi.URLParam(req, "metric")
 	println(metric)
 	name := chi.URLParam(req, "name")
@@ -65,8 +70,8 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 		}
 
 		s.storage.AddGauge(name, partFloat)
-		println(s.storage.GaugeSlice())
-		res.WriteHeader(http.StatusOK)
+		//println(s.storage.GaugeSlice())
+		//res.WriteHeader(http.StatusOK)
 
 	case "counter":
 		partInt, Error := strconv.ParseInt(value, 0, 64)
@@ -76,14 +81,11 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 		}
 
 		s.storage.AddCounter(name, partInt)
-		res.WriteHeader(http.StatusOK)
-		return
+		//res.WriteHeader(http.StatusOK)
 
-	//fmt.Println(s.storage.CounterSlice())
+		//fmt.Println(s.storage.CounterSlice())
 	default:
-		//println("deafult error")
-		http.Error(res, "Invalid request format", http.StatusBadRequest)
-		return
+		http.Error(res, "Invalid metric value", http.StatusBadRequest)
 	}
 
 }

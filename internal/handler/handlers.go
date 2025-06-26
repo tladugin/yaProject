@@ -102,7 +102,7 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 		for i, m := range s.storage.GaugeSlice() {
 			if m.Name == name {
 				getCheck = true
-				fmt.Fprintf(res, "name:%s value:%f", s.storage.GaugeSlice()[i].Name, s.storage.GaugeSlice()[i].Value)
+				fmt.Fprintf(res, "%s %f", s.storage.GaugeSlice()[i].Name, s.storage.GaugeSlice()[i].Value)
 				res.WriteHeader(http.StatusOK)
 
 			}
@@ -120,7 +120,7 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 				//println(m.Value)
 				//res.Header().Set("Content-Type", "application/json")
 				//json.NewEncoder(res).Encode(s.storage.GaugeSlice()[i])
-				fmt.Fprintf(res, "name:%s value:%d", s.storage.CounterSlice()[i].Name, s.storage.CounterSlice()[i].Value)
+				fmt.Fprintf(res, "%s %d", s.storage.CounterSlice()[i].Name, s.storage.CounterSlice()[i].Value)
 				res.WriteHeader(http.StatusOK)
 
 			}

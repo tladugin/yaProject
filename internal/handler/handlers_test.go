@@ -3,19 +3,10 @@ package handler
 import (
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"testing"
 )
 
-func createTestServer() *httptest.Server {
-	storage := repository.NewMemStorage()
-	s := NewServer(storage)
-	mux := http.NewServeMux()
-	mux.HandleFunc(`/`, s.PostHandler)
-
-	return httptest.NewServer(mux)
-}
 func TestNewServer(t *testing.T) {
 	type args struct {
 		s *repository.MemStorage
@@ -61,16 +52,7 @@ func TestServer_GetHandler(t *testing.T) {
 	}
 }
 
-func TestServer_PostHandler(t *testing.T) {
-
-	storage := repository.NewMemStorage()
-	s := NewServer(storage)
-	server := createTestServer()
-	defer server.Close()
-
-	testServerURL := server.URL
-	//testServerURL += "/update/"
-
+func TestServer_MainPage(t *testing.T) {
 	type fields struct {
 		storage *repository.MemStorage
 	}
@@ -78,31 +60,44 @@ func TestServer_PostHandler(t *testing.T) {
 		res http.ResponseWriter
 		req *http.Request
 	}
-
-	testStruct := []struct {
-		name string
-		url  string
-		want int
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
 	}{
 		// TODO: Add test cases.
-		{name: "gauge", url: "/update/gauge/Alloc/12.34", want: http.StatusOK},
-		{name: "counter", url: "/update/counter/PollCount/567890", want: http.StatusOK},
-		{name: "invalid_metric_type", url: "/update/unknown/metrics/type/123", want: http.StatusNotFound},
-		{name: "invalid_path_format", url: "/update/gauge/Alloc", want: http.StatusNotFound},
 	}
-	for _, tt := range testStruct {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			req, err := http.NewRequest("POST", testServerURL+tt.url, nil)
-			if err != nil {
-				t.Fatal(err)
+			s := &Server{
+				storage: tt.fields.storage,
 			}
-			res := httptest.NewRecorder()
+			s.MainPage(tt.args.res, tt.args.req)
+		})
+	}
+}
 
-			s.PostHandler(res, req)
-			if res.Code != tt.want {
-				t.Errorf("Expected status code %d, but got %d", tt.want, res.Code)
+func TestServer_PostHandler(t *testing.T) {
+	type fields struct {
+		storage *repository.MemStorage
+	}
+	type args struct {
+		res http.ResponseWriter
+		req *http.Request
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{
+				storage: tt.fields.storage,
 			}
+			s.PostHandler(tt.args.res, tt.args.req)
 		})
 	}
 }

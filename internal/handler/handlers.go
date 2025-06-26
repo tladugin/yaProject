@@ -56,6 +56,7 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 	println(value)
 
 	switch metric {
+
 	case "gauge":
 		partFloat, Error := strconv.ParseFloat(value, 64)
 		if Error != nil {
@@ -64,7 +65,9 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 		}
 
 		s.storage.AddGauge(name, partFloat)
+		println(s.storage.GaugeSlice())
 		res.WriteHeader(http.StatusOK)
+
 	case "counter":
 		partInt, Error := strconv.ParseInt(value, 0, 64)
 		if Error != nil {
@@ -74,9 +77,11 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 
 		s.storage.AddCounter(name, partInt)
 		res.WriteHeader(http.StatusOK)
+		return
 
 	//fmt.Println(s.storage.CounterSlice())
 	default:
+		//println("deafult error")
 		http.Error(res, "Invalid request format", http.StatusBadRequest)
 		return
 	}
@@ -85,9 +90,9 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 
 	metric := chi.URLParam(req, "metric")
-	println(metric)
+	//println(metric)
 	name := chi.URLParam(req, "name")
-	println(name)
+	//println(name)
 
 	switch metric {
 	case "gauge":
@@ -109,8 +114,8 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 		for i, m := range s.storage.CounterSlice() {
 			if m.Name == name {
 				getCheck = true
-				println(m.Name)
-				println(m.Value)
+				//println(m.Name)
+				//println(m.Value)
 				//res.Header().Set("Content-Type", "application/json")
 				//json.NewEncoder(res).Encode(s.storage.GaugeSlice()[i])
 				fmt.Fprintf(res, "name:%s value:%d", s.storage.CounterSlice()[i].Name, s.storage.CounterSlice()[i].Value)

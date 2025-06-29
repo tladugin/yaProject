@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-
+	parseFlags()
 	storage := repository.NewMemStorage()
 	s := handler.NewServer(storage)
 
@@ -26,8 +26,8 @@ func main() {
 	//r.Route("/value", func(r chi.Router) {
 	//	r.Get("/{metric}/{name}", s.GetHandler)
 	//})
-	fmt.Println("Starting server on :8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	fmt.Println("Starting server on :", flagRunAddr)
+	if err := http.ListenAndServe(flagRunAddr, r); err != nil {
 		fmt.Printf("Server failed: %v\n", err)
 	}
 

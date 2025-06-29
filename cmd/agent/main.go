@@ -23,14 +23,14 @@ func sendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	var sendAddr string
 	if metricType == "gauge" {
 		sendAddr = fmt.Sprintf("%s%s/%s/%f", URL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
-		//println(url)
+
 	}
 	if metricType == "counter" {
 		sendAddr = fmt.Sprintf("%s%s/%s/%d", URL, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
 		//println(url)
 	}
-
-	req, err := http.NewRequest("POST", sendAddr, nil)
+	//println(sendAddr)
+	req, err := http.NewRequest("POST", "http://"+sendAddr, nil)
 	if err != nil {
 		return err
 	}
@@ -54,12 +54,12 @@ func sendMetric(URL string, metricType string, storage *repository.MemStorage, i
 func main() {
 	parseFlags()
 	serverURL := flagRunAddr
-	//reportInterval, error := (strconv.ParseInt(reportInterval)) * time.Second
+
 	pollIntervalTime, error := strconv.Atoi(pollIntervalTime)
 	if error != nil {
 		log.Fatal("Invalid value for pollInterval")
 	}
-	//println("Polling interval time: ", pollIntervalTime)
+
 	if pollIntervalTime < 0 {
 		log.Fatal("Invalid value for pollInterval")
 	}

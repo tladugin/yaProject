@@ -7,14 +7,15 @@ import (
 	"math/rand"
 	"net/http"
 	"runtime"
+	"strconv"
 	"time"
 )
 
 const (
-	pollInterval   = 2 * time.Second
-	reportInterval = 10 * time.Second
-	serverURL      = "http://localhost:8080/update/"
-	contentType    = "Content-Type: text/plain"
+	//pollInterval = 2 * time.Second
+
+	//serverURL   = "http://localhost:8080/update/"
+	contentType = "Content-Type: text/plain"
 )
 
 func sendMetric(URL string, metricType string, storage *repository.MemStorage, i int) error {
@@ -50,6 +51,19 @@ func sendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	return nil
 }
 func main() {
+	parseFlags()
+	serverURL := flagRunAddr
+	//reportInterval, error := (strconv.ParseInt(reportInterval)) * time.Second
+	pollIntervalTime, error := strconv.Atoi(pollIntervalTime)
+	if error != nil {
+		fmt.Println("Invalid value for pollInterval")
+	}
+	pollInterval := time.Duration(pollIntervalTime) * time.Second
+	reportIntervalTime, error := strconv.Atoi(reportIntervalTime)
+	if error != nil {
+		fmt.Println("Error converting reportInterval to int")
+	}
+	reportInterval := time.Duration(reportIntervalTime) * time.Second
 	storage := repository.NewMemStorage()
 
 	var m runtime.MemStats
@@ -108,7 +122,7 @@ func main() {
 			// и мы можем отправлять их на сервер
 			fmt.Println("Sending metrics...")
 			for i := range storage.GaugeSlice() {
-				err := sendMetric(serverURL, "gauge", storage, i)
+				err := sendMetric(serverURL+"/update/", "gauge", storage, i)
 				if err != nil {
 					fmt.Println(storage.GaugeSlice()[i])
 					fmt.Println("Error sending metric:", err)
@@ -117,7 +131,7 @@ func main() {
 
 			}
 			for i := range storage.CounterSlice() {
-				err := sendMetric(serverURL, "counter", storage, i)
+				err := sendMetric(serverURL+"/update/", "counter", storage, i)
 				if err != nil {
 					fmt.Println(storage.CounterSlice()[i])
 					fmt.Println("Error sending metric:", err)

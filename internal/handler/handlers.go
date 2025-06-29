@@ -54,11 +54,11 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, "Invalid URL", http.StatusBadRequest)
 	}
 	metric := chi.URLParam(req, "metric")
-	println(metric)
+	//println(metric)
 	name := chi.URLParam(req, "name")
-	println(name)
+	//println(name)
 	value := chi.URLParam(req, "value")
-	println(value)
+	//println(value)
 
 	switch metric {
 

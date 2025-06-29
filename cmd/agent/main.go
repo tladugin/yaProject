@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"runtime"
@@ -56,12 +57,20 @@ func main() {
 	//reportInterval, error := (strconv.ParseInt(reportInterval)) * time.Second
 	pollIntervalTime, error := strconv.Atoi(pollIntervalTime)
 	if error != nil {
-		fmt.Println("Invalid value for pollInterval")
+		log.Fatal("Invalid value for pollInterval")
 	}
+	//println("Polling interval time: ", pollIntervalTime)
+	if pollIntervalTime < 0 {
+		log.Fatal("Invalid value for pollInterval")
+	}
+
 	pollInterval := time.Duration(pollIntervalTime) * time.Second
 	reportIntervalTime, error := strconv.Atoi(reportIntervalTime)
 	if error != nil {
-		fmt.Println("Error converting reportInterval to int")
+		log.Fatal("Invalid value for reportInterval")
+	}
+	if reportIntervalTime < 0 {
+		log.Fatal("Invalid value for reportInterval")
 	}
 	reportInterval := time.Duration(reportIntervalTime) * time.Second
 	storage := repository.NewMemStorage()

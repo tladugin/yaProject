@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -29,28 +30,62 @@ func sendMetric(URL string, metricType string, storage *repository.MemStorage, i
 		sendAddr = fmt.Sprintf("%s%s/%s/%d", URL, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
 		//println(url)
 	}
-	//println(sendAddr)
+	//println("sendAddr:", sendAddr)
+	//println("URL:", URL)
+
+	//var req *http.Request
+	if strings.HasPrefix(URL, "http://") {
+		req, err := http.NewRequest("POST", sendAddr, nil)
+		if err != nil {
+			return err
+		}
+		//println("url with prefix")
+		req.Header.Set("Content-Type", contentType)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("metric send failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		return nil
+	} else {
+		req, err := http.NewRequest("POST", "http://"+sendAddr, nil)
+		if err != nil {
+			return err
+		}
+		//println("url without prefix")
+		req.Header.Set("Content-Type", contentType)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("metric send failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		return nil
+	}
+}
+
+/*
 	req, err := http.NewRequest("POST", "http://"+sendAddr, nil)
 	if err != nil {
 		return err
 	}
-
 	req.Header.Set("Content-Type", contentType)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+*/
 
-	if resp.StatusCode != 200 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("metric send failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	return nil
-}
 func main() {
 	parseFlags()
 	serverURL := flagRunAddr
@@ -121,7 +156,7 @@ func main() {
 
 			storage.AddCounter("PollCount", 1)
 
-			println(storage.CounterSlice()[0].Value)
+			//println(storage.CounterSlice()[0].Value)
 
 			pollCounter = 0
 		}

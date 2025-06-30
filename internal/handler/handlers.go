@@ -133,6 +133,8 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 		if !getCheck {
 			http.Error(res, "No metric found", http.StatusNotFound)
 		}
+	default:
+		http.Error(res, "Invalid metric value", http.StatusNotFound)
 
 	}
 }

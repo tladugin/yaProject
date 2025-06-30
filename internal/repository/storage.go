@@ -20,6 +20,7 @@ func (s *MemStorage) GaugeSlice() []gauge {
 func (s *MemStorage) CounterSlice() []counter {
 	return s.counterSlice
 }
+
 func NewMemStorage() *MemStorage {
 	return &MemStorage{
 		counterSlice: make([]counter, 0),

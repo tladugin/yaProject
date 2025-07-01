@@ -14,14 +14,15 @@ import (
 )
 
 const (
-	//pollInterval = 2 * time.Second
-
-	//serverURL   = "http://localhost:8080/update/"
 	contentType = "Content-Type: text/plain"
 )
 
 func sendMetric(URL string, metricType string, storage *repository.MemStorage, i int) error {
+
 	var sendAddr string
+	var req *http.Request
+	var err error
+
 	if metricType == "gauge" {
 		sendAddr = fmt.Sprintf("%s%s/%s/%f", URL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
 
@@ -33,60 +34,39 @@ func sendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	//println("sendAddr:", sendAddr)
 	//println("URL:", URL)
 
-	//var req *http.Request
 	if strings.HasPrefix(URL, "http://") {
-		req, err := http.NewRequest("POST", sendAddr, nil)
+		req, err = http.NewRequest("POST", sendAddr, nil)
 		if err != nil {
 			return err
 		}
-		//println("url with prefix")
-		req.Header.Set("Content-Type", contentType)
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("metric send failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-		}
-
-		return nil
 	} else {
-		req, err := http.NewRequest("POST", "http://"+sendAddr, nil)
+		req, err = http.NewRequest("POST", "http://"+sendAddr, nil)
 		if err != nil {
 			return err
 		}
-		//println("url without prefix")
-		req.Header.Set("Content-Type", contentType)
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("metric send failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-		}
-
-		return nil
 	}
-}
-
-/*
-	req, err := http.NewRequest("POST", "http://"+sendAddr, nil)
+	req.Header.Set("Content-Type", contentType)
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", contentType)
+	defer resp.Body.Close()
 
-*/
+	if resp.StatusCode != 200 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("metric send failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
 
 func main() {
+
+	var err error
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
 	parseFlags()
 	serverURL := flagRunAddr
 
@@ -99,8 +79,6 @@ func main() {
 		log.Fatal("Invalid value for pollInterval")
 	}
 
-	//pollInterval := time.Duration(pollIntervalTime) * time.Second
-
 	reportIntervalTime, error := strconv.Atoi(reportIntervalTime)
 	if error != nil {
 		log.Fatal("Invalid value for reportInterval")
@@ -108,14 +86,11 @@ func main() {
 	if reportIntervalTime < 0 {
 		log.Fatal("Invalid value for reportInterval")
 	}
-	//reportInterval := time.Duration(reportIntervalTime) * time.Second
+
 	storage := repository.NewMemStorage()
 
 	pollCounter := 0
 	reportCounter := 0
-
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
 
 	for {
 		time.Sleep(1 * time.Second)
@@ -164,7 +139,7 @@ func main() {
 		if reportIntervalTime == reportCounter {
 			fmt.Println("Sending metrics...")
 			for i := range storage.GaugeSlice() {
-				err := sendMetric(serverURL+"/update/", "gauge", storage, i)
+				err = sendMetric(serverURL+"/update/", "gauge", storage, i)
 				if err != nil {
 					fmt.Println(storage.GaugeSlice()[i])
 					fmt.Println("Error sending metric:", err)
@@ -172,14 +147,16 @@ func main() {
 
 			}
 			for i := range storage.CounterSlice() {
-				err := sendMetric(serverURL+"/update/", "counter", storage, i)
+				err = sendMetric(serverURL+"/update/", "counter", storage, i)
 				if err != nil {
 					fmt.Println(storage.CounterSlice()[i])
 					fmt.Println("Error sending metric:", err)
 				}
 			}
-			storage.CounterSlice()[0].Value = 0
-			reportCounter = 0
+			if err == nil {
+				storage.CounterSlice()[0].Value = 0
+				reportCounter = 0
+			}
 		}
 	}
 }

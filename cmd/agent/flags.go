@@ -33,6 +33,6 @@ func parseFlags() {
 		reportIntervalTime = envReportInter
 	}
 	if envPortInter := os.Getenv("POLL_INTERVAL"); envPortInter != "" {
-		flagRunAddr = envPortInter
+		pollIntervalTime = envPortInter
 	}
 }

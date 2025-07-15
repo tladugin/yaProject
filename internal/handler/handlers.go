@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// создаем функцию NewServer которая возвращает указать на нашу структуру Server, которая содержит storage
+// создаем функцию NewServer которая возвращает указатель на нашу структуру Server, которая содержит storage
 func NewServer(s *repository.MemStorage) *Server {
 	return &Server{
 		storage: s,
@@ -126,7 +126,7 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 				//json.NewEncoder(res).Encode(s.storage.GaugeSlice()[i])
 				//fmt.Fprintf(res, "%s %d", s.storage.CounterSlice()[i].Name, s.storage.CounterSlice()[i].Value)
 				fmt.Fprint(res, s.storage.CounterSlice()[i].Value)
-				res.WriteHeader(http.StatusOK)
+				//res.WriteHeader(http.StatusOK)
 
 			}
 		}

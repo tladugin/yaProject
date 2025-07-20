@@ -6,7 +6,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -97,7 +96,7 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 		return
 
 	}
-	if metricCounter == 30 {
+	/*if metricCounter == 30 {
 		metricCounter = 0
 		for m := range s.storage.GaugeSlice() {
 			log.Println("Name:", s.storage.GaugeSlice()[m].Name, "Value:", s.storage.GaugeSlice()[m].Value)
@@ -106,6 +105,8 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 			log.Println("Name:", s.storage.CounterSlice()[m].Name, "Value:", s.storage.CounterSlice()[m].Value)
 		}
 	}
+
+	*/
 
 }
 func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {

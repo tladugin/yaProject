@@ -53,6 +53,7 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 	err := decoder.Decode(&decodedMetrics)
 	if err != nil {
 		http.Error(res, "Wrong decoding", http.StatusNotAcceptable)
+		return
 	}
 	defer req.Body.Close()
 	switch decodedMetrics.MType {
@@ -70,6 +71,7 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 	err := decoder.Decode(&decodedMetrics)
 	if err != nil {
 		http.Error(res, "Wrong decoding", http.StatusNotAcceptable)
+		return
 	}
 	defer req.Body.Close()
 	encoder := json.NewEncoder(res)
@@ -90,6 +92,7 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 		}
 		if !getCheck {
 			http.Error(res, "No metric found", http.StatusNotFound)
+			return
 		}
 	case "counter":
 		getCheck := false

@@ -1,93 +1,116 @@
 package main
 
 import (
-	"fmt"
-	"github.com/go-chi/chi/v5"
+	"encoding/json"
+	models "github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
-func Test_sendMetric(t *testing.T) {
+func Test_sendMetric(t *testing.T) { // Создаем тестовое хранилище
+	testGauge := repository.NewMemStorage()
+	testGauge.AddGauge("Alloc", 123.45)
+	testCounter := repository.NewMemStorage()
+	testCounter.AddCounter("PollCounter", 42)
+	/*{
+		GaugeSliceVal: []repository.Gauge{
+			{Name: "testGauge", Value: 123.45},
+		},
+		CounterSliceVal: []repository.Counter{
+			{Name: "testCounter", Value: 42},
+		},
+	}
 
-	gaugeTest := *repository.NewMemStorage()
-	gaugeTest.AddGauge("Alloc", 123.45)
-	//gaugeTest.AddGauge("heap", 678.90)
-	counterTest := *repository.NewMemStorage()
-	counterTest.AddCounter("PollCount", 42)
-	//counterTest.AddCounter("misses", 5)
-	//bothTest := *repository.NewMemStorage()
-	//bothTest.AddGauge("alloc", 123.45)
-	//bothTest.AddCounter("hits", 100)
+	*/
+
 	tests := []struct {
 		name        string
+		URL         string
 		metricType  string
 		storage     *repository.MemStorage
-		index       int
-		setupServer func(r chi.Router) // Настройка роутера chi
-		wantURL     string
+		i           int
+		handler     http.HandlerFunc
 		wantErr     bool
-		wantErrText string
+		expectedErr string
 	}{
 		{
-			name:       "Success gauge metric",
+			name:       "successful gauge send",
+			URL:        "http://example.com",
 			metricType: "gauge",
-			storage:    &gaugeTest,
-			index:      0,
-			setupServer: func(r chi.Router) {
-				r.Post("/update/gauge/{name}/{value}", func(w http.ResponseWriter, r *http.Request) {
-					name := chi.URLParam(r, "name")
-					value := chi.URLParam(r, "value")
-					if name != "Alloc" || value != "123.450000" {
-						w.WriteHeader(http.StatusBadRequest)
-						return
-					}
-					w.WriteHeader(http.StatusOK)
-				})
+			storage:    testGauge,
+			i:          0,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				var metric models.Metrics
+				if err := json.NewDecoder(r.Body).Decode(&metric); err != nil {
+					t.Errorf("failed to decode request: %v", err)
+				}
+				if metric.ID != "Alloc" || metric.MType != "gauge" || *metric.Value != 123.45 {
+					t.Errorf("unexpected metric data")
+				}
+				w.WriteHeader(http.StatusOK)
 			},
-			wantURL: "/update/gauge/Alloc/123.450000",
+			wantErr: false,
 		},
 		{
-			name:       "Success counter metric",
+			name:       "successful counter send",
+			URL:        "http://example.com",
 			metricType: "counter",
-			storage:    &counterTest,
-			index:      0,
-			setupServer: func(r chi.Router) {
-				r.Post("/update/counter/{name}/{value}", func(w http.ResponseWriter, r *http.Request) {
-					name := chi.URLParam(r, "name")
-					value := chi.URLParam(r, "value")
-					if name != "PollCount" || value != "42" {
-						w.WriteHeader(http.StatusBadRequest)
-						return
-					}
-					w.WriteHeader(http.StatusOK)
-				})
+			storage:    testCounter,
+			i:          0,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				var metric models.Metrics
+				if err := json.NewDecoder(r.Body).Decode(&metric); err != nil {
+					t.Errorf("failed to decode request: %v", err)
+				}
+				if metric.ID != "PollCounter" || metric.MType != "counter" || *metric.Delta != 42 {
+					t.Errorf("unexpected metric data")
+				}
+				w.WriteHeader(http.StatusOK)
 			},
-			wantURL: "/update/counter/PollCount/42",
+			wantErr: false,
 		},
 		{
-			name:       "Server returns error",
-			metricType: "gauge",
-			storage:    &gaugeTest,
-			index:      0,
-			setupServer: func(r chi.Router) {
-				r.Post("/update/gauge/{name}/{value}", func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusBadRequest)
-					fmt.Fprint(w, "invalid metric")
-				})
-			},
-			wantURL:     "/update/gauge/Alloc/123.45",
-			wantErr:     true,
-			wantErrText: "metric send failed with status 400: invalid metric",
-		},
-		{
-			name:       "Invalid metric type",
+			name:       "invalid metric type",
+			URL:        "http://example.com",
 			metricType: "invalid",
-			storage:    &repository.MemStorage{},
-			index:      0,
-			setupServer: func(r chi.Router) {
-				// Ничего не настраиваем - должен вернуться 404
+			storage:    testGauge,
+			i:          0,
+			handler:    nil,
+			wantErr:    true,
+		},
+		{
+			name:       "server error response",
+			URL:        "http://example.com",
+			metricType: "gauge",
+			storage:    testGauge,
+			i:          0,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("server error"))
+			},
+			wantErr:     true,
+			expectedErr: "metric send failed with status 500: server error",
+		},
+		{
+			name:       "invalid URL",
+			URL:        "invalid-url",
+			metricType: "gauge",
+			storage:    testGauge,
+			i:          0,
+			handler:    nil,
+			wantErr:    true,
+		},
+		{
+			name:       "URL without scheme",
+			URL:        "example.com",
+			metricType: "gauge",
+			storage:    testGauge,
+			i:          0,
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
 			},
 			wantErr: true,
 		},
@@ -95,27 +118,26 @@ func Test_sendMetric(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Создаем chi роутер
-			r := chi.NewRouter()
-			tt.setupServer(r)
+			var ts *httptest.Server
+			if tt.handler != nil {
+				ts = httptest.NewServer(tt.handler)
+				defer ts.Close()
 
-			// Запускаем тестовый сервер
-			ts := httptest.NewServer(r)
-			defer ts.Close()
+				// Если тест требует тестового сервера, подменяем URL
+				if strings.HasPrefix(tt.URL, "http://") {
+					tt.URL = ts.URL
+				}
+			}
 
-			// Вызываем тестируемую функцию
-			err := sendMetric(ts.URL+"/update/", tt.metricType, tt.storage, tt.index)
-			println(ts.URL + "/update/" + tt.metricType)
+			err := sendMetric(tt.URL, tt.metricType, tt.storage, tt.i)
 
-			// Проверяем ошибки
 			if (err != nil) != tt.wantErr {
-				//println(tt.)
 				t.Errorf("sendMetric() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
-			if tt.wantErrText != "" && (err == nil || err.Error() != tt.wantErrText) {
-				t.Errorf("got error %v, want %s", err, tt.wantErrText)
+			if tt.wantErr && tt.expectedErr != "" && err.Error() != tt.expectedErr {
+				t.Errorf("sendMetric() error = %v, expectedErr %v", err, tt.expectedErr)
 			}
 		})
 	}

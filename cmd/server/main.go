@@ -35,9 +35,9 @@ func main() {
 		r.Get("/value/{metric}/{name}", logger.LoggingAnswer(s.GetHandler, sugar))
 		r.Post("/update/{metric}/{name}/{value}", logger.LoggingRequest(s.PostHandler, sugar))
 		r.Post("/update", logger.LoggingRequest(s.PostUpdate, sugar))
-		r.Post("/update/", logger.LoggingRequest(s.PostUpdate, sugar))
+		//r.Post("/update/", logger.LoggingRequest(s.PostUpdate, sugar))
 		r.Post("/value", logger.LoggingRequest(s.PostValue, sugar))
-		r.Post("/value/", logger.LoggingRequest(s.PostValue, sugar))
+		//r.Post("/value/", logger.LoggingRequest(s.PostValue, sugar))
 	})
 	sugar.Infoln("Starting server on :", flagRunAddr)
 	if err := http.ListenAndServe(flagRunAddr, r); err != nil {

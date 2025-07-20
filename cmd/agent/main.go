@@ -85,6 +85,7 @@ func main() {
 	runtime.ReadMemStats(&m)
 
 	parseFlags()
+
 	serverURL := flagRunAddr
 	pollDuration, err := time.ParseDuration(pollIntervalTime + "s")
 	if err != nil {

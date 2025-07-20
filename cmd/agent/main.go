@@ -104,16 +104,22 @@ func main() {
 
 	storage := repository.NewMemStorage()
 
-	pollCounter := 0
-	reportCounter := 0
+	//pollCounter := 0
+	//reportCounter := 0
 
 	for {
-		time.Sleep(1 * time.Second)
-		pollCounter += 1   // счетчик секунд для обновления метрик
-		reportCounter += 1 // счетчик секунд для отправки метрик
-		if pollIntervalTime == pollCounter {
-			// Обновляем метрики здесь
-			pollCounter = 0
+		//time.Sleep(1 * time.Second)
+		//pollCounter += 1   // счетчик секунд для обновления метрик
+		//reportCounter += 1 // счетчик секунд для отправки метрик
+		//if pollIntervalTime == pollCounter {
+		// Обновляем метрики здесь
+		tickerPoll := time.NewTicker(time.Duration(pollIntervalTime) * time.Second)
+		defer tickerPoll.Stop()
+
+		select {
+		case <-tickerPoll.C:
+
+			//pollCounter = 0
 			fmt.Println("Updating metrics...")
 			storage.AddGauge("Alloc", float64(m.Alloc))
 			storage.AddGauge("BuckHashSys", float64(m.BuckHashSys))
@@ -147,12 +153,17 @@ func main() {
 
 			storage.AddCounter("PollCount", 1)
 
-			//println(storage.CounterSlice()[0].Value)
-
 		}
+		//println(storage.CounterSlice()[0].Value)
 
-		if reportIntervalTime == reportCounter {
-			reportCounter = 0
+		//}
+
+		//if reportIntervalTime == reportCounter {
+		//	reportCounter = 0
+		tickerRep := time.NewTicker(time.Duration(reportIntervalTime) * time.Second)
+		defer tickerRep.Stop()
+		select {
+		case <-tickerRep.C:
 			fmt.Println("Sending metrics...")
 			for i := range storage.GaugeSlice() {
 				err = sendMetric(serverURL+"/update", "gauge", storage, i)
@@ -164,15 +175,12 @@ func main() {
 			}
 			for i := range storage.CounterSlice() {
 				err = sendMetric(serverURL+"/update", "counter", storage, i)
+
 				if err != nil {
 					fmt.Println(storage.CounterSlice()[i])
 					fmt.Println("Error sending metric:", err)
 				}
 			}
-			/*if err == nil {
-				storage.CounterSlice()[0].Value = 0
-				reportCounter = 0
-			} */
 
 		}
 	}

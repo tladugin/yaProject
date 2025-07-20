@@ -82,7 +82,6 @@ func main() {
 
 	var err error
 	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
 
 	parseFlags()
 
@@ -138,6 +137,7 @@ func main() {
 			select {
 			case <-pollTicker.C:
 				log.Println("Updating metrics...")
+				runtime.ReadMemStats(&m)
 				//fmt.Println("Updating metrics...")
 				storage.AddGauge("Alloc", float64(m.Alloc))
 				storage.AddGauge("BuckHashSys", float64(m.BuckHashSys))

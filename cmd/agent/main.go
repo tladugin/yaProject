@@ -113,6 +113,7 @@ func main() {
 		reportCounter += 1 // счетчик секунд для отправки метрик
 		if pollIntervalTime == pollCounter {
 			// Обновляем метрики здесь
+			pollCounter = 0
 			fmt.Println("Updating metrics...")
 			storage.AddGauge("Alloc", float64(m.Alloc))
 			storage.AddGauge("BuckHashSys", float64(m.BuckHashSys))
@@ -148,10 +149,10 @@ func main() {
 
 			//println(storage.CounterSlice()[0].Value)
 
-			pollCounter = 0
 		}
 
 		if reportIntervalTime == reportCounter {
+			reportCounter = 0
 			fmt.Println("Sending metrics...")
 			for i := range storage.GaugeSlice() {
 				err = sendMetric(serverURL+"/update", "gauge", storage, i)
@@ -168,10 +169,11 @@ func main() {
 					fmt.Println("Error sending metric:", err)
 				}
 			}
-			if err == nil {
+			/*if err == nil {
 				storage.CounterSlice()[0].Value = 0
 				reportCounter = 0
-			}
+			} */
+
 		}
 	}
 }

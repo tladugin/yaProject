@@ -82,7 +82,7 @@ func main() {
 
 	var err error
 	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
+
 	parseFlags()
 
 	serverURL := flagRunAddr
@@ -136,7 +136,7 @@ func main() {
 		for {
 			select {
 			case <-pollTicker.C:
-
+				runtime.ReadMemStats(&m)
 				log.Println("Updating metrics...")
 				//fmt.Println("Updating metrics...")
 				storage.AddGauge("Alloc", float64(m.Alloc))

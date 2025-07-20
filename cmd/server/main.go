@@ -34,15 +34,10 @@ func main() {
 		r.Get("/", logger.LoggingAnswer(s.MainPage, sugar))
 		r.Get("/value/{metric}/{name}", logger.LoggingAnswer(s.GetHandler, sugar))
 		r.Post("/update/{metric}/{name}/{value}", logger.LoggingRequest(s.PostHandler, sugar))
-		//r.Post("/update/", logger.LoggingRequest(s.PostUpdate, sugar))
-		//r.Post("/value", logger.LoggingRequest(s.PostValue, sugar))
-		//r.Post("/value/", logger.LoggingRequest(s.PostValue, sugar))
-	})
-	r.Route("/update", func(r chi.Router) {
-		r.Post("/", logger.LoggingRequest(s.PostUpdate, sugar))
-	})
-	r.Route("/value", func(r chi.Router) {
-		r.Post("/", logger.LoggingRequest(s.PostValue, sugar))
+		r.Post("/update", logger.LoggingRequest(s.PostUpdate, sugar))
+		r.Post("/update/", logger.LoggingRequest(s.PostUpdate, sugar))
+		r.Post("/value", logger.LoggingRequest(s.PostValue, sugar))
+		r.Post("/value/", logger.LoggingRequest(s.PostValue, sugar))
 	})
 	sugar.Infoln("Starting server on :", flagRunAddr)
 	if err := http.ListenAndServe(flagRunAddr, r); err != nil {

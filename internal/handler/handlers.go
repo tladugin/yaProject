@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,7 +47,12 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 	}
 	fmt.Fprint(res, "</ul></body></html>")
 }
+
+var metricCounter = 0
+
 func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
+	metricCounter += 1
+
 	res.Header().Set("Content-Type", "application/json")
 	var decodedMetrics models.Metrics
 	var encodedMetrics models.Metrics
@@ -64,12 +70,13 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 	defer req.Body.Close()
 	switch decodedMetrics.MType {
 	case "gauge":
-		println(decodedMetrics.ID)
+		//println(decodedMetrics.ID)
 		if decodedMetrics.Value == nil {
 			http.Error(res, "No gauge value", http.StatusNotAcceptable)
 			return
 		}
 		s.storage.AddGauge(decodedMetrics.ID, *decodedMetrics.Value)
+
 		encodedMetrics.ID = decodedMetrics.ID
 		encodedMetrics.MType = "gauge"
 		encodedMetrics.Value = decodedMetrics.Value
@@ -88,7 +95,18 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 	default:
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
 		return
+
 	}
+	if metricCounter == 30 {
+		metricCounter = 0
+		for m := range s.storage.GaugeSlice() {
+			log.Println("Name:", s.storage.GaugeSlice()[m].Name, "Value:", s.storage.GaugeSlice()[m].Value)
+		}
+		for m := range s.storage.CounterSlice() {
+			log.Println("Name:", s.storage.CounterSlice()[m].Name, "Value:", s.storage.CounterSlice()[m].Value)
+		}
+	}
+
 }
 func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 	res.Header().Set("Content-Type", "application/json")

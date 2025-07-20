@@ -55,6 +55,12 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, "Wrong decoding", http.StatusNotAcceptable)
 		return
 	}
+	if decodedMetrics.Delta == nil {
+		http.Error(res, "No counter delta", http.StatusNotAcceptable)
+	}
+	if decodedMetrics.Value == nil {
+		http.Error(res, "No gauge value", http.StatusNotAcceptable)
+	}
 	defer req.Body.Close()
 	switch decodedMetrics.MType {
 	case "gauge":

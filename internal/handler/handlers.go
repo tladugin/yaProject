@@ -117,6 +117,8 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 		if !getCheck {
 			http.Error(res, "No metric found", http.StatusNotFound)
 		}
+	default:
+		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
 	}
 
 }

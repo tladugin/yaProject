@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
+	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"net/http"
 	"strconv"
@@ -43,6 +45,70 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 
 	}
 	fmt.Fprint(res, "</ul></body></html>")
+}
+func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
+	res.Header().Set("Content-Type", "application/json")
+	var decodedMetrics models.Metrics
+	decoder := json.NewDecoder(req.Body)
+	err := decoder.Decode(&decodedMetrics)
+	if err != nil {
+		http.Error(res, "Wrong decoding", http.StatusNotAcceptable)
+	}
+	defer req.Body.Close()
+	switch decodedMetrics.MType {
+	case "gauge":
+		s.storage.AddGauge(decodedMetrics.ID, *decodedMetrics.Value)
+	case "counter":
+		s.storage.AddCounter(decodedMetrics.ID, *decodedMetrics.Delta)
+	}
+}
+func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
+	res.Header().Set("Content-Type", "application/json")
+	var decodedMetrics models.Metrics
+	var encodedMetrics models.Metrics
+	decoder := json.NewDecoder(req.Body)
+	err := decoder.Decode(&decodedMetrics)
+	if err != nil {
+		http.Error(res, "Wrong decoding", http.StatusNotAcceptable)
+	}
+	defer req.Body.Close()
+	encoder := json.NewEncoder(res)
+	switch decodedMetrics.MType {
+	case "gauge":
+		getCheck := false
+		for i, m := range s.storage.GaugeSlice() {
+			if m.Name == decodedMetrics.ID {
+				getCheck = true
+
+				encodedMetrics.MType = "gauge"
+				encodedMetrics.ID = s.storage.GaugeSlice()[i].Name
+				encodedMetrics.Value = &s.storage.GaugeSlice()[i].Value
+				encoder.Encode(encodedMetrics)
+
+			}
+
+		}
+		if !getCheck {
+			http.Error(res, "No metric found", http.StatusNotFound)
+		}
+	case "counter":
+		getCheck := false
+		for i, m := range s.storage.CounterSlice() {
+			if m.Name == decodedMetrics.ID {
+				getCheck = true
+
+				encodedMetrics.MType = "counter"
+				encodedMetrics.ID = s.storage.CounterSlice()[i].Name
+				encodedMetrics.Delta = &s.storage.CounterSlice()[i].Value
+				encoder.Encode(encodedMetrics)
+			}
+
+		}
+		if !getCheck {
+			http.Error(res, "No metric found", http.StatusNotFound)
+		}
+	}
+
 }
 
 // функция принимает указатель на структуру Server, что позволяет обрашаться к storage

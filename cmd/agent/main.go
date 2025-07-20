@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	models "github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"io"
 	"log"
@@ -14,33 +17,45 @@ import (
 )
 
 const (
-	contentType = "Content-Type: text/plain"
+	contentType = "Content-Type: application/json"
 )
 
 func sendMetric(URL string, metricType string, storage *repository.MemStorage, i int) error {
 
-	var sendAddr string
+	//var sendAddr string
 	var req *http.Request
 	var err error
+	var encodedMetrics models.Metrics
 
 	if metricType == "gauge" {
-		sendAddr = fmt.Sprintf("%s%s/%s/%f", URL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
+		encodedMetrics.MType = "gauge"
+		encodedMetrics.ID = storage.GaugeSlice()[i].Name
+		encodedMetrics.Value = &storage.GaugeSlice()[i].Value
+
+		//sendAddr = fmt.Sprintf("%s%s/%s/%f", URL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
 
 	}
 	if metricType == "counter" {
-		sendAddr = fmt.Sprintf("%s%s/%s/%d", URL, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
+		//sendAddr = fmt.Sprintf("%s%s/%s/%d", URL, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
 		//println(url)
+		encodedMetrics.MType = "counter"
+		encodedMetrics.ID = storage.CounterSlice()[i].Name
+		encodedMetrics.Delta = &storage.CounterSlice()[i].Value
+
 	}
 	//println("sendAddr:", sendAddr)
 	//println("URL:", URL)
-
+	jsonData, err := json.Marshal(&encodedMetrics)
+	if err != nil {
+		return err
+	}
 	if strings.HasPrefix(URL, "http://") {
-		req, err = http.NewRequest("POST", sendAddr, nil)
+		req, err = http.NewRequest("POST", URL, bytes.NewBuffer(jsonData))
 		if err != nil {
 			return err
 		}
 	} else {
-		req, err = http.NewRequest("POST", "http://"+sendAddr, nil)
+		req, err = http.NewRequest("POST", "http://"+URL, bytes.NewBuffer(jsonData))
 		if err != nil {
 			return err
 		}
@@ -139,7 +154,7 @@ func main() {
 		if reportIntervalTime == reportCounter {
 			fmt.Println("Sending metrics...")
 			for i := range storage.GaugeSlice() {
-				err = sendMetric(serverURL+"/update/", "gauge", storage, i)
+				err = sendMetric(serverURL+"/update", "gauge", storage, i)
 				if err != nil {
 					fmt.Println(storage.GaugeSlice()[i])
 					fmt.Println("Error sending metric:", err)
@@ -147,7 +162,7 @@ func main() {
 
 			}
 			for i := range storage.CounterSlice() {
-				err = sendMetric(serverURL+"/update/", "counter", storage, i)
+				err = sendMetric(serverURL+"/update", "counter", storage, i)
 				if err != nil {
 					fmt.Println(storage.CounterSlice()[i])
 					fmt.Println("Error sending metric:", err)

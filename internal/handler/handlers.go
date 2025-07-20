@@ -49,6 +49,8 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 	res.Header().Set("Content-Type", "application/json")
 	var decodedMetrics models.Metrics
+	var encodedMetrics models.Metrics
+	encoder := json.NewEncoder(res)
 	decoder := json.NewDecoder(req.Body)
 	err := decoder.Decode(&decodedMetrics)
 	if err != nil {
@@ -68,12 +70,21 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		s.storage.AddGauge(decodedMetrics.ID, *decodedMetrics.Value)
+		encodedMetrics.ID = decodedMetrics.ID
+		encodedMetrics.MType = "gauge"
+		encodedMetrics.Value = decodedMetrics.Value
+		encoder.Encode(encodedMetrics)
 	case "counter":
 		if decodedMetrics.Delta == nil {
 			http.Error(res, "No counter delta", http.StatusNotAcceptable)
 			return
 		}
 		s.storage.AddCounter(decodedMetrics.ID, *decodedMetrics.Delta)
+		encodedMetrics.ID = decodedMetrics.ID
+		encodedMetrics.MType = "counter"
+		encodedMetrics.Delta = decodedMetrics.Delta
+		encoder.Encode(encodedMetrics)
+
 	default:
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
 		return

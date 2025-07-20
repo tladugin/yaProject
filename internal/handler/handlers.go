@@ -55,19 +55,28 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, "Wrong decoding", http.StatusNotAcceptable)
 		return
 	}
-
+	if decodedMetrics.ID == "" {
+		http.Error(res, "Wrong metric ID", http.StatusNotAcceptable)
+		return
+	}
 	defer req.Body.Close()
 	switch decodedMetrics.MType {
 	case "gauge":
+		println(decodedMetrics.ID)
 		if decodedMetrics.Value == nil {
 			http.Error(res, "No gauge value", http.StatusNotAcceptable)
+			return
 		}
 		s.storage.AddGauge(decodedMetrics.ID, *decodedMetrics.Value)
 	case "counter":
 		if decodedMetrics.Delta == nil {
 			http.Error(res, "No counter delta", http.StatusNotAcceptable)
+			return
 		}
 		s.storage.AddCounter(decodedMetrics.ID, *decodedMetrics.Delta)
+	default:
+		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
+		return
 	}
 }
 func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
@@ -78,6 +87,10 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 	err := decoder.Decode(&decodedMetrics)
 	if err != nil {
 		http.Error(res, "Wrong decoding", http.StatusNotAcceptable)
+		return
+	}
+	if decodedMetrics.ID == "" {
+		http.Error(res, "Wrong metric ID", http.StatusNotAcceptable)
 		return
 	}
 	defer req.Body.Close()
@@ -116,9 +129,11 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 		}
 		if !getCheck {
 			http.Error(res, "No metric found", http.StatusNotFound)
+			return
 		}
 	default:
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
+		return
 	}
 
 }

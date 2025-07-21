@@ -25,6 +25,9 @@ type Server struct {
 
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
+
 	fmt.Fprint(res, "<html><body><ul>")
 	for m := range s.storage.GaugeSlice() {
 
@@ -178,6 +181,9 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 // функция принимает указатель на структуру Server, что позволяет обрашаться к storage
 func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
+
 	//params := chi.URLParam(req, "URL")
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 5 {
@@ -222,6 +228,9 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 
 }
 func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
+
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
 
 	metric := chi.URLParam(req, "metric")
 	//println(metric)

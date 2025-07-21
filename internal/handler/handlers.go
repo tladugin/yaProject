@@ -181,7 +181,7 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 // функция принимает указатель на структуру Server, что позволяет обрашаться к storage
 func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 
-	res.Header().Set("Content-Encoding", "gzip")
+	//res.Header().Set("Content-Encoding", "gzip")
 	//res.Header().Set("Accept-Encoding", "gzip")
 
 	//params := chi.URLParam(req, "URL")
@@ -229,7 +229,7 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 }
 func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 
-	res.Header().Set("Content-Encoding", "gzip")
+	//res.Header().Set("Content-Encoding", "gzip")
 	//res.Header().Set("Accept-Encoding", "gzip")
 
 	metric := chi.URLParam(req, "metric")

@@ -32,8 +32,8 @@ func main() {
 	r.Route("/", func(r chi.Router) {
 
 		r.Get("/", logger.LoggingAnswer(gzipMiddleware(s.MainPage), sugar))
-		r.Get("/value/{metric}/{name}", logger.LoggingAnswer(gzipMiddleware(s.GetHandler), sugar))
-		r.Post("/update/{metric}/{name}/{value}", logger.LoggingRequest(gzipMiddleware(s.PostHandler), sugar))
+		r.Get("/value/{metric}/{name}", logger.LoggingAnswer(s.GetHandler, sugar))
+		r.Post("/update/{metric}/{name}/{value}", logger.LoggingRequest(s.PostHandler, sugar))
 		r.Post("/update", logger.LoggingRequest(gzipMiddleware(s.PostUpdate), sugar))
 		r.Post("/update/", logger.LoggingRequest(gzipMiddleware(s.PostUpdate), sugar))
 		r.Post("/value", logger.LoggingRequest(gzipMiddleware(s.PostValue), sugar))

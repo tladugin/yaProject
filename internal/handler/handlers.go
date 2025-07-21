@@ -50,9 +50,12 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 var metricCounter = 0
 
 func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
-	metricCounter += 1
+	//metricCounter += 1
 
 	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
+
 	var decodedMetrics models.Metrics
 	var encodedMetrics models.Metrics
 	encoder := json.NewEncoder(res)
@@ -110,7 +113,11 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 
 }
 func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
+
 	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
+
 	var decodedMetrics models.Metrics
 	var encodedMetrics models.Metrics
 	decoder := json.NewDecoder(req.Body)

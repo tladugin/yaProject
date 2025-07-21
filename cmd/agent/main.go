@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	models "github.com/tladugin/yaProject.git/internal/model"
@@ -51,20 +52,35 @@ func sendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	if err != nil {
 		return err
 	}
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+
+	if _, err := gz.Write(jsonData); err != nil {
+		return fmt.Errorf("gzip write error: %w", err)
+	}
+
+	if err := gz.Close(); err != nil {
+		return fmt.Errorf("gzip close error: %w", err)
+	}
+	//println(buf.String())
 	if strings.HasPrefix(URL, "http://") {
-		req, err = http.NewRequest("POST", URL, bytes.NewBuffer(jsonData))
+		req, err = http.NewRequest("POST", URL, &buf)
 		if err != nil {
 			return err
 		}
 	} else {
-		req, err = http.NewRequest("POST", "http://"+URL, bytes.NewBuffer(jsonData))
+		req, err = http.NewRequest("POST", "http://"+URL, &buf)
 		if err != nil {
 			return err
 		}
 	}
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Accept-Encoding", "gzip")
 	client := &http.Client{}
 	resp, err := client.Do(req)
+
 	if err != nil {
 		return err
 	}

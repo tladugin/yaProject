@@ -25,8 +25,9 @@ type Server struct {
 
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 
+	res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	res.Header().Set("Content-Encoding", "gzip")
-	//res.Header().Set("Accept-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
 
 	fmt.Fprint(res, "<html><body><ul>")
 	for m := range s.storage.GaugeSlice() {

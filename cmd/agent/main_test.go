@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	models "github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
@@ -43,8 +45,16 @@ func Test_sendMetric(t *testing.T) { // Создаем тестовое хран
 			storage:    testGauge,
 			i:          0,
 			handler: func(w http.ResponseWriter, r *http.Request) {
+				r.Header.Set("Content-Encoding", "gzip")
 				var metric models.Metrics
-				if err := json.NewDecoder(r.Body).Decode(&metric); err != nil {
+				var buf bytes.Buffer
+				buf.ReadFrom(r.Body)
+				gz, err := gzip.NewReader(&buf)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer gz.Close()
+				if err := json.NewDecoder(gz).Decode(&metric); err != nil {
 					t.Errorf("failed to decode request: %v", err)
 				}
 				if metric.ID != "Alloc" || metric.MType != "gauge" || *metric.Value != 123.45 {
@@ -62,7 +72,14 @@ func Test_sendMetric(t *testing.T) { // Создаем тестовое хран
 			i:          0,
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				var metric models.Metrics
-				if err := json.NewDecoder(r.Body).Decode(&metric); err != nil {
+				var buf bytes.Buffer
+				buf.ReadFrom(r.Body)
+				gz, err := gzip.NewReader(&buf)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer gz.Close()
+				if err := json.NewDecoder(gz).Decode(&metric); err != nil {
 					t.Errorf("failed to decode request: %v", err)
 				}
 				if metric.ID != "PollCounter" || metric.MType != "counter" || *metric.Delta != 42 {

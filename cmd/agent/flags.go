@@ -1,6 +1,17 @@
 package main
 
-import "flag"
+
+import (
+	"flag"
+	"os"
+)
+
+/*type Config struct {
+	AD []string `env:"ADDRESS"`
+	PI string   `env:"POLL_INTERVAL"`
+	RI string   `env:"REPORT_INTERVAL"`
+}*/
+
 
 var flagRunAddr string
 var reportIntervalTime string
@@ -16,5 +27,16 @@ func parseFlags() {
 	flag.StringVar(&pollIntervalTime, "p", "2", "poll interval")
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
+
+
+	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
+		flagRunAddr = envRunAddr
+	}
+	if envReportInter := os.Getenv("REPORT_INTERVAL"); envReportInter != "" {
+		reportIntervalTime = envReportInter
+	}
+	if envPortInter := os.Getenv("POLL_INTERVAL"); envPortInter != "" {
+		pollIntervalTime = envPortInter
+	}
 
 }

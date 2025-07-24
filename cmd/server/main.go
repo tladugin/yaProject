@@ -15,6 +15,7 @@ import (
 	"time"
 )
 
+// logger
 var (
 	sugar     *zap.SugaredLogger
 	producerM sync.Mutex

@@ -12,7 +12,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+var mutex sync.Mutex
 
 type Consumer struct {
 	file *os.File
@@ -36,6 +39,8 @@ func (c *Consumer) Close() error {
 	return c.file.Close()
 }
 func (c *Consumer) ReadEvent() (*models.Metrics, error) {
+	mutex.Lock()
+	defer mutex.Unlock()
 	data, err := c.reader.ReadBytes('\n')
 
 	if err != nil {
@@ -73,7 +78,10 @@ func NewProducer(filename string) (*Producer, error) {
 func (p *Producer) Close() error {
 	return p.file.Close()
 }
+
 func (p *Producer) WriteEvent(event *models.Metrics) error {
+	mutex.Lock()
+	defer mutex.Unlock()
 	data, err := json.Marshal(&event)
 	if err != nil {
 		return err

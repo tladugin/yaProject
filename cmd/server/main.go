@@ -37,7 +37,7 @@ func main() {
 	//sugar.Infoln(flagStoreInterval)
 	storage := repository.NewMemStorage()
 
-	if flagRestore {
+	if flagRestore == true {
 		consumer, err := handler.NewConsumer(flagFileStoragePath)
 		if err != nil {
 			return
@@ -89,69 +89,78 @@ func main() {
 
 		go func() {
 			for {
+				select {
+				default:
+					storeTicker := time.NewTicker(storeInterval)
+					defer storeTicker.Stop()
 
-				storeTicker := time.NewTicker(storeInterval)
-				defer storeTicker.Stop()
+					<-storeTicker.C
+					/*if _, err = os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
 
-				<-storeTicker.C
-				/*if _, err = os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
+						//fmt.Println(!os.IsNotExist(err))
+						fmt.Println("Файл существует")
+						err = producer.Close()
+						if err != nil {
+							fmt.Println(err)
+						}
+						err = os.Remove(flagFileStoragePath)
+						if err != nil {
+							sugar.Fatal(err)
+						} else {
+							fmt.Println("Файл удален")
+						}
+						producer, err = handler.NewProducer(flagFileStoragePath)
+						if err != nil {
+							sugar.Fatal("could not open backup file", err)
+						}
+						fmt.Println("Новый бэкап файл создан")
 
-					//fmt.Println(!os.IsNotExist(err))
-					fmt.Println("Файл существует")
-					err = producer.Close()
-					if err != nil {
-						fmt.Println(err)
 					}
-					err = os.Remove(flagFileStoragePath)
-					if err != nil {
-						sugar.Fatal(err)
-					} else {
-						fmt.Println("Файл удален")
-					}
-					producer, err = handler.NewProducer(flagFileStoragePath)
-					if err != nil {
-						sugar.Fatal("could not open backup file", err)
-					}
-					fmt.Println("Новый бэкап файл создан")
 
+
+					*/
+					for i := range storage.GaugeSlice() {
+
+						backup := models.Metrics{}
+						backup.ID = storage.GaugeSlice()[i].Name
+						backup.MType = "gauge"
+						backup.Value = &storage.GaugeSlice()[i].Value
+						//sugar.Infoln(backup.ID)
+						err := producer.WriteEvent(&backup)
+						if err != nil {
+							return
+						}
+
+					}
+					for i := range storage.CounterSlice() {
+
+						backup := models.Metrics{}
+						backup.ID = storage.CounterSlice()[i].Name
+						backup.MType = "counter"
+						backup.Delta = &storage.CounterSlice()[i].Value
+						//sugar.Infoln(backup.ID)
+						err := producer.WriteEvent(&backup)
+						if err != nil {
+							return
+						}
+					}
+				case <-stopProgram:
+					return
 				}
-
-
-				*/
-				for i := range storage.GaugeSlice() {
-
-					backup := models.Metrics{}
-					backup.ID = storage.GaugeSlice()[i].Name
-					backup.MType = "gauge"
-					backup.Value = &storage.GaugeSlice()[i].Value
-					//sugar.Infoln(backup.ID)
-					err := producer.WriteEvent(&backup)
-					if err != nil {
-						return
-					}
-
-				}
-				for i := range storage.CounterSlice() {
-
-					backup := models.Metrics{}
-					backup.ID = storage.CounterSlice()[i].Name
-					backup.MType = "counter"
-					backup.Delta = &storage.CounterSlice()[i].Value
-					//sugar.Infoln(backup.ID)
-					err := producer.WriteEvent(&backup)
-					if err != nil {
-						return
-					}
-				}
-
 			}
+
 		}()
 	}
 	go func() {
 
 		<-stopProgram
-		sugar.Info("Stopped backup store")
-		if _, err := os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
+		sugar.Info("Exiting program backup")
+		/*if _, err = os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
+			err = producer.Close()
+			if err != nil {
+				return
+			}
+
 			err = os.Remove(flagFileStoragePath)
 			if err != nil {
 				sugar.Fatal(err)
@@ -162,16 +171,18 @@ func main() {
 		if err != nil {
 			sugar.Fatal("could not open backup file", err)
 		}
+
+		*/
 		for i := range storage.GaugeSlice() {
 
 			backup := models.Metrics{}
 			backup.ID = storage.GaugeSlice()[i].Name
 			backup.MType = "gauge"
 			backup.Value = &storage.GaugeSlice()[i].Value
-
+			//sugar.Infoln(backup.ID)
 			err := producer.WriteEvent(&backup)
 			if err != nil {
-				return
+				sugar.Errorw("Error writing event", "error", err)
 			}
 
 		}
@@ -181,12 +192,18 @@ func main() {
 			backup.ID = storage.CounterSlice()[i].Name
 			backup.MType = "counter"
 			backup.Delta = &storage.CounterSlice()[i].Value
-
-			err := producer.WriteEvent(&backup)
+			//sugar.Infoln(backup.ID)
+			err = producer.WriteEvent(&backup)
 			if err != nil {
-				return
+				sugar.Errorw("Error writing event", "error", err)
 			}
 		}
+		sugar.Info("Backup finished")
+		err = producer.Close()
+		if err != nil {
+			sugar.Errorw("Error closing producer", "error", err)
+		}
+		return
 
 	}()
 	/*if flagStoreInterval == "0" {
@@ -243,30 +260,35 @@ func main() {
 	*/
 	go func() {
 
-		s := handler.NewServer(storage)
-		sSync := handler.NewServerSync(storage, producer)
+		select {
+		default:
+			s := handler.NewServer(storage)
+			sSync := handler.NewServerSync(storage, producer)
 
-		r := chi.NewRouter()
-		r.Route("/", func(r chi.Router) {
+			r := chi.NewRouter()
+			r.Route("/", func(r chi.Router) {
 
-			r.Get("/", logger.LoggingAnswer(gzipMiddleware(s.MainPage), sugar))
-			r.Get("/value/{metric}/{name}", logger.LoggingAnswer(s.GetHandler, sugar))
-			r.Post("/update/{metric}/{name}/{value}", logger.LoggingRequest(s.PostHandler, sugar))
-			if flagStoreInterval == "0" { //Sync backup mode
-				sugar.Infoln("Sync backup mode")
-				r.Post("/update", logger.LoggingRequest(gzipMiddleware(sSync.PostUpdateSyncBackup), sugar))
-				r.Post("/update/", logger.LoggingRequest(gzipMiddleware(sSync.PostUpdateSyncBackup), sugar))
-			} else {
-				sugar.Infoln("aSync backup mode")
-				r.Post("/update", logger.LoggingRequest(gzipMiddleware(s.PostUpdate), sugar))
-				r.Post("/update/", logger.LoggingRequest(gzipMiddleware(s.PostUpdate), sugar))
+				r.Get("/", logger.LoggingAnswer(gzipMiddleware(s.MainPage), sugar))
+				r.Get("/value/{metric}/{name}", logger.LoggingAnswer(s.GetHandler, sugar))
+				r.Post("/update/{metric}/{name}/{value}", logger.LoggingRequest(s.PostHandler, sugar))
+				if flagStoreInterval == "0" { //Sync backup mode
+					sugar.Infoln("Sync backup mode")
+					r.Post("/update", logger.LoggingRequest(gzipMiddleware(sSync.PostUpdateSyncBackup), sugar))
+					r.Post("/update/", logger.LoggingRequest(gzipMiddleware(sSync.PostUpdateSyncBackup), sugar))
+				} else {
+					sugar.Infoln("aSync backup mode")
+					r.Post("/update", logger.LoggingRequest(gzipMiddleware(s.PostUpdate), sugar))
+					r.Post("/update/", logger.LoggingRequest(gzipMiddleware(s.PostUpdate), sugar))
+				}
+				r.Post("/value", logger.LoggingRequest(gzipMiddleware(s.PostValue), sugar))
+				r.Post("/value/", logger.LoggingRequest(gzipMiddleware(s.PostValue), sugar))
+			})
+			sugar.Infoln("Starting server on :", flagRunAddr)
+			if err := http.ListenAndServe(flagRunAddr, r); err != nil {
+				sugar.Errorln("Server failed: %v\n", err)
 			}
-			r.Post("/value", logger.LoggingRequest(gzipMiddleware(s.PostValue), sugar))
-			r.Post("/value/", logger.LoggingRequest(gzipMiddleware(s.PostValue), sugar))
-		})
-		sugar.Infoln("Starting server on :", flagRunAddr)
-		if err := http.ListenAndServe(flagRunAddr, r); err != nil {
-			sugar.Errorln("Server failed: %v\n", err)
+		case <-stopProgram:
+
 		}
 
 	}()

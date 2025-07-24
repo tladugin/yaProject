@@ -37,6 +37,35 @@ func main() {
 	//sugar.Infoln(flagStoreInterval)
 	storage := repository.NewMemStorage()
 
+	if flagRestore {
+		consumer, err := handler.NewConsumer(flagFileStoragePath)
+		if err != nil {
+			return
+		}
+
+		event, err := consumer.ReadEvent()
+		if err != nil {
+			return
+		}
+		for event != nil {
+
+			if event.MType == "gauge" {
+				storage.AddGauge(event.ID, *event.Value)
+			} else if event.MType == "counter" {
+				storage.AddCounter(event.ID, *event.Delta)
+			}
+
+			event, err = consumer.ReadEvent()
+
+		}
+		for i, _ := range storage.GaugeSlice() {
+			println(storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
+		}
+		for i, _ := range storage.CounterSlice() {
+			println(storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
+		}
+	}
+
 	storeInterval, err := time.ParseDuration(flagStoreInterval + "s")
 	if err != nil {
 		sugar.Fatal("wrong store_interval value", err)

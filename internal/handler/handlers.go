@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
@@ -14,65 +15,82 @@ import (
 )
 
 type Consumer struct {
-	file    *os.File
-	decoder *json.Decoder
+	file *os.File
+	// добавляем reader в Consumer
+	reader *bufio.Reader
 }
 
-func NewConsumer(fileName string) (*Consumer, error) {
-	file, err := os.OpenFile(fileName, os.O_RDONLY|os.O_CREATE, 0666)
+func NewConsumer(filename string) (*Consumer, error) {
+	file, err := os.OpenFile(filename, os.O_RDONLY|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Consumer{
-		file:    file,
-		decoder: json.NewDecoder(file),
+		file: file,
+		// создаём новый Reader
+		reader: bufio.NewReader(file),
 	}, nil
 }
 func (c *Consumer) Close() error {
 	return c.file.Close()
 }
 func (c *Consumer) ReadEvent() (*models.Metrics, error) {
-	event := &models.Metrics{}
-	if err := c.decoder.Decode(&event); err != nil {
+	data, err := c.reader.ReadBytes('\n')
+
+	if err != nil {
 		return nil, err
 	}
 
-	return event, nil
-}
-
-/*func (c *Consumer) ReadEvent() (*Event, error) {
-	event := &Event{}
-	if err := c.decoder.Decode(&event); err != nil {
+	// преобразуем данные из JSON-представления в структуру
+	event := models.Metrics{}
+	err = json.Unmarshal(data, &event)
+	if err != nil {
 		return nil, err
 	}
 
-	return event, nil
+	return &event, nil
 }
-
-*/
 
 type Producer struct {
-	file    *os.File
-	encoder *json.Encoder
+	file *os.File
+	// добавляем Writer в Producer
+	writer *bufio.Writer
 }
 
-func NewProducer(fileName string) (*Producer, error) {
-	file, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+func NewProducer(filename string) (*Producer, error) {
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Producer{
-		file:    file,
-		encoder: json.NewEncoder(file),
+		file: file,
+		// создаём новый Writer
+		writer: bufio.NewWriter(file),
 	}, nil
 }
 func (p *Producer) Close() error {
 	return p.file.Close()
 }
 func (p *Producer) WriteEvent(event *models.Metrics) error {
-	return p.encoder.Encode(&event)
+	data, err := json.Marshal(&event)
+	if err != nil {
+		return err
+	}
+
+	// записываем событие в буфер
+	if _, err := p.writer.Write(data); err != nil {
+		return err
+	}
+
+	// добавляем перенос строки
+	if err := p.writer.WriteByte('\n'); err != nil {
+		return err
+	}
+
+	// записываем буфер в файл
+	return p.writer.Flush()
 }
 
 func NewServerSync(s *repository.MemStorage, p *Producer) *ServerSync {
@@ -239,7 +257,12 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, "Wrong metric ID", http.StatusNotAcceptable)
 		return
 	}
-	defer req.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			http.Error(res, "Error closing body", http.StatusInternalServerError)
+		}
+	}(req.Body)
 	switch decodedMetrics.MType {
 	case "gauge":
 		//println(decodedMetrics.ID)

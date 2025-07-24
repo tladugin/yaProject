@@ -56,12 +56,15 @@ func main() {
 			}
 
 			event, err = consumer.ReadEvent()
+			if err != nil {
+				sugar.Infoln("Backup restored")
+			}
 
 		}
-		for i, _ := range storage.GaugeSlice() {
+		for i := range storage.GaugeSlice() {
 			println(storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
 		}
-		for i, _ := range storage.CounterSlice() {
+		for i := range storage.CounterSlice() {
 			println(storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
 		}
 	}

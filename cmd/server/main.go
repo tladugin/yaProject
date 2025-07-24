@@ -41,7 +41,7 @@ func main() {
 	if err != nil {
 		sugar.Fatal("Could not open backup file: ", err)
 	}
-	defer safeCloseProducer(producer)
+	//defer safeCloseProducer(producer)
 
 	// Парсинг интервала сохранения
 	storeInterval, err := time.ParseDuration(flagStoreInterval + "s")
@@ -109,6 +109,12 @@ func restoreFromBackup(storage *repository.MemStorage) {
 			break
 		}
 	}
+	for m := range storage.GaugeSlice() {
+		sugar.Infoln(storage.GaugeSlice()[m].Name, storage.GaugeSlice()[m].Value)
+	}
+	for m := range storage.CounterSlice() {
+		sugar.Infoln(storage.CounterSlice()[m].Name, storage.CounterSlice()[m].Value)
+	}
 }
 
 func runPeriodicBackup(storage *repository.MemStorage, producer *handler.Producer, interval time.Duration, stop <-chan struct{}, wg *sync.WaitGroup) {
@@ -134,6 +140,7 @@ func runFinalBackup(storage *repository.MemStorage, producer *handler.Producer, 
 	<-stop
 
 	sugar.Info("Starting final backup...")
+	producer.Close()
 	if err := performBackup(storage, producer); err != nil {
 		sugar.Error("Final backup failed: ", err)
 	}
@@ -143,6 +150,17 @@ func runFinalBackup(storage *repository.MemStorage, producer *handler.Producer, 
 func performBackup(storage *repository.MemStorage, producer *handler.Producer) error {
 	producerM.Lock()
 	defer producerM.Unlock()
+
+	if err := os.Remove(flagFileStoragePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// Создаем новый продюсер (файл будет создан заново)
+	producer, err := handler.NewProducer(flagFileStoragePath)
+	if err != nil {
+		return err
+	}
+	defer producer.Close()
 
 	// Бэкап gauge метрик
 	for _, gauge := range storage.GaugeSlice() {

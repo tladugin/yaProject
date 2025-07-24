@@ -1,29 +1,36 @@
 package main
 
 import (
+
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	models "github.com/tladugin/yaProject.git/internal/model"
+
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
+
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
 	"syscall"
+
 	"time"
 )
 
 const (
+
 	contentType = "Content-Type: application/json"
+
 )
 
 func sendMetric(URL string, metricType string, storage *repository.MemStorage, i int) error {
+
 
 	//var sendAddr string
 	var req *http.Request
@@ -66,20 +73,25 @@ func sendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	//println(buf.String())
 	if strings.HasPrefix(URL, "http://") {
 		req, err = http.NewRequest("POST", URL, &buf)
+
 		if err != nil {
 			return err
 		}
 	} else {
+
 		req, err = http.NewRequest("POST", "http://"+URL, &buf)
+
 		if err != nil {
 			return err
 		}
 	}
 	req.Header.Set("Content-Type", contentType)
+
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 	client := &http.Client{}
 	resp, err := client.Do(req)
+
 
 	if err != nil {
 		return err
@@ -99,6 +111,7 @@ func main() {
 	var err error
 	var m runtime.MemStats
 
+
 	parseFlags()
 
 	serverURL := flagRunAddr
@@ -115,6 +128,7 @@ func main() {
 	stopReport := make(chan struct{})
 
 	/*pollIntervalTime, error := strconv.Atoi(pollIntervalTime)
+
 	if error != nil {
 		log.Fatal("Invalid value for pollInterval")
 	}
@@ -130,6 +144,7 @@ func main() {
 	if reportIntervalTime < 0 {
 		log.Fatal("Invalid value for reportInterval")
 	}
+
 
 
 	*/
@@ -236,3 +251,4 @@ func main() {
 
 //}
 //}
+

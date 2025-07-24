@@ -1,6 +1,7 @@
 package main
 
 import (
+
 	"github.com/go-chi/chi/v5"
 	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
@@ -19,10 +20,12 @@ import (
 var (
 	sugar     *zap.SugaredLogger
 	producerM sync.Mutex
+
 )
 
 func main() {
 	parseFlags()
+
 
 	// Инициализация логгера
 	initLogger()
@@ -255,4 +258,5 @@ func waitForShutdown(stop chan<- struct{}) {
 	sig := <-shutdown
 	sugar.Infof("Received signal: %v. Shutting down...", sig)
 	close(stop)
+
 }

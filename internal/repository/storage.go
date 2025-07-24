@@ -58,6 +58,7 @@ func (s *MemStorage) AddCounter(name string, value int64) {
 	s.counterSlice = append(s.counterSlice, counter{Name: name, Value: value})
 }
 
+
 /*
 func (s *MemStorage) GetGauge(i int) (string, float64) {
 	name := s.gaugeSlice[i].Name
@@ -72,3 +73,4 @@ func (s *MemStorage) GetCounter(i int) (string, int64) {
 
 
 */
+

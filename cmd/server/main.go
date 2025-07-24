@@ -156,7 +156,7 @@ func performBackup(storage *repository.MemStorage, producer *handler.Producer) e
 	}
 
 	// Создаем новый продюсер (файл будет создан заново)
-	producer, err := handler.NewProducer(flagFileStoragePath)
+	newProducer, err := handler.NewProducer(flagFileStoragePath)
 	if err != nil {
 		return err
 	}
@@ -169,7 +169,7 @@ func performBackup(storage *repository.MemStorage, producer *handler.Producer) e
 			MType: "gauge",
 			Value: &gauge.Value,
 		}
-		if err := producer.WriteEvent(&backup); err != nil {
+		if err := newProducer.WriteEvent(&backup); err != nil {
 			return err
 		}
 	}
@@ -181,7 +181,7 @@ func performBackup(storage *repository.MemStorage, producer *handler.Producer) e
 			MType: "counter",
 			Delta: &counter.Value,
 		}
-		if err := producer.WriteEvent(&backup); err != nil {
+		if err := newProducer.WriteEvent(&backup); err != nil {
 			return err
 		}
 	}

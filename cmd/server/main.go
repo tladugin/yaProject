@@ -25,8 +25,9 @@ func main() {
 		panic(err)
 	}
 	defer func(log *zap.Logger) {
-		err := log.Sync()
+		err = log.Sync()
 		if err != nil {
+			panic(err)
 		}
 	}(log)
 
@@ -60,102 +61,98 @@ func main() {
 				storeTicker := time.NewTicker(storeInterval)
 				defer storeTicker.Stop()
 
-				select {
-				case <-storeTicker.C:
-					/*if _, err = os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
+				<-storeTicker.C
+				/*if _, err = os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
 
-						//fmt.Println(!os.IsNotExist(err))
-						fmt.Println("Файл существует")
-						err = producer.Close()
-						if err != nil {
-							fmt.Println(err)
-						}
-						err = os.Remove(flagFileStoragePath)
-						if err != nil {
-							sugar.Fatal(err)
-						} else {
-							fmt.Println("Файл удален")
-						}
-						producer, err = handler.NewProducer(flagFileStoragePath)
-						if err != nil {
-							sugar.Fatal("could not open backup file", err)
-						}
-						fmt.Println("Новый бэкап файл создан")
-
+					//fmt.Println(!os.IsNotExist(err))
+					fmt.Println("Файл существует")
+					err = producer.Close()
+					if err != nil {
+						fmt.Println(err)
 					}
-
-
-					*/
-					for i := range storage.GaugeSlice() {
-
-						backup := models.Metrics{}
-						backup.ID = storage.GaugeSlice()[i].Name
-						backup.MType = "gauge"
-						backup.Value = &storage.GaugeSlice()[i].Value
-						//sugar.Infoln(backup.ID)
-						err := producer.WriteEvent(&backup)
-						if err != nil {
-							return
-						}
-
+					err = os.Remove(flagFileStoragePath)
+					if err != nil {
+						sugar.Fatal(err)
+					} else {
+						fmt.Println("Файл удален")
 					}
-					for i := range storage.CounterSlice() {
+					producer, err = handler.NewProducer(flagFileStoragePath)
+					if err != nil {
+						sugar.Fatal("could not open backup file", err)
+					}
+					fmt.Println("Новый бэкап файл создан")
 
-						backup := models.Metrics{}
-						backup.ID = storage.CounterSlice()[i].Name
-						backup.MType = "counter"
-						backup.Delta = &storage.CounterSlice()[i].Value
-						//sugar.Infoln(backup.ID)
-						err := producer.WriteEvent(&backup)
-						if err != nil {
-							return
-						}
+				}
+
+
+				*/
+				for i := range storage.GaugeSlice() {
+
+					backup := models.Metrics{}
+					backup.ID = storage.GaugeSlice()[i].Name
+					backup.MType = "gauge"
+					backup.Value = &storage.GaugeSlice()[i].Value
+					//sugar.Infoln(backup.ID)
+					err := producer.WriteEvent(&backup)
+					if err != nil {
+						return
 					}
 
 				}
+				for i := range storage.CounterSlice() {
+
+					backup := models.Metrics{}
+					backup.ID = storage.CounterSlice()[i].Name
+					backup.MType = "counter"
+					backup.Delta = &storage.CounterSlice()[i].Value
+					//sugar.Infoln(backup.ID)
+					err := producer.WriteEvent(&backup)
+					if err != nil {
+						return
+					}
+				}
+
 			}
 		}()
 	}
 	go func() {
-		select {
-		case <-stopProgram:
-			sugar.Info("Stopped backup store")
-			if _, err := os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
-				err = os.Remove(flagFileStoragePath)
-			}
 
-			producer, err := handler.NewProducer(flagFileStoragePath)
+		<-stopProgram
+		sugar.Info("Stopped backup store")
+		if _, err := os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
+			err = os.Remove(flagFileStoragePath)
+		}
+
+		producer, err := handler.NewProducer(flagFileStoragePath)
+		if err != nil {
+			sugar.Fatal("could not open backup file", err)
+		}
+		for i := range storage.GaugeSlice() {
+
+			backup := models.Metrics{}
+			backup.ID = storage.GaugeSlice()[i].Name
+			backup.MType = "gauge"
+			backup.Value = &storage.GaugeSlice()[i].Value
+
+			err := producer.WriteEvent(&backup)
 			if err != nil {
-				sugar.Fatal("could not open backup file", err)
+				return
 			}
-			for i := range storage.GaugeSlice() {
-
-				backup := models.Metrics{}
-				backup.ID = storage.GaugeSlice()[i].Name
-				backup.MType = "gauge"
-				backup.Value = &storage.GaugeSlice()[i].Value
-
-				err := producer.WriteEvent(&backup)
-				if err != nil {
-					return
-				}
-
-			}
-			for i := range storage.CounterSlice() {
-
-				backup := models.Metrics{}
-				backup.ID = storage.CounterSlice()[i].Name
-				backup.MType = "counter"
-				backup.Delta = &storage.CounterSlice()[i].Value
-
-				err := producer.WriteEvent(&backup)
-				if err != nil {
-					return
-				}
-			}
-			return
 
 		}
+		for i := range storage.CounterSlice() {
+
+			backup := models.Metrics{}
+			backup.ID = storage.CounterSlice()[i].Name
+			backup.MType = "counter"
+			backup.Delta = &storage.CounterSlice()[i].Value
+
+			err := producer.WriteEvent(&backup)
+			if err != nil {
+				return
+			}
+		}
+		return
 
 	}()
 	/*if flagStoreInterval == "0" {

@@ -32,6 +32,14 @@ func NewConsumer(fileName string) (*Consumer, error) {
 func (c *Consumer) Close() error {
 	return c.file.Close()
 }
+func (c *Consumer) ReadEvent() (*models.Metrics, error) {
+	event := &models.Metrics{}
+	if err := c.decoder.Decode(&event); err != nil {
+		return nil, err
+	}
+
+	return event, nil
+}
 
 /*func (c *Consumer) ReadEvent() (*Event, error) {
 	event := &Event{}
@@ -144,7 +152,7 @@ func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Req
 	defer func(Body io.ReadCloser) {
 		err = Body.Close()
 		if err != nil {
-
+			http.Error(res, "Error closing body", http.StatusInternalServerError)
 		}
 	}(req.Body)
 	switch decodedMetrics.MType {

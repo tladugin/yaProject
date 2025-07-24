@@ -37,7 +37,7 @@ func main() {
 	//sugar.Infoln(flagStoreInterval)
 	storage := repository.NewMemStorage()
 
-	if flagRestore == true {
+	if flagRestore {
 		consumer, err := handler.NewConsumer(flagFileStoragePath)
 		if err != nil {
 			return
@@ -203,7 +203,6 @@ func main() {
 		if err != nil {
 			sugar.Errorw("Error closing producer", "error", err)
 		}
-		return
 
 	}()
 	/*if flagStoreInterval == "0" {

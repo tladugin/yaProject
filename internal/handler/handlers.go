@@ -164,6 +164,8 @@ func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Req
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 		}
 
+		//fmt.Println(encodedMetrics.ID, encodedMetrics.MType, encodedMetrics.Value)
+
 		err = encoder.Encode(encodedMetrics)
 		if err != nil {
 			return
@@ -176,16 +178,11 @@ func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Req
 		}
 		s.storage.AddCounter(decodedMetrics.ID, *decodedMetrics.Delta)
 
-		for m := range s.storage.CounterSlice() {
-			fmt.Println(s.storage.CounterSlice()[m].Name, s.storage.CounterSlice()[m].Value)
-		}
-		if err = s.producer.WriteEvent(&decodedMetrics); err != nil {
-			http.Error(res, err.Error(), http.StatusInternalServerError)
-		}
-
 		encodedMetrics.ID = decodedMetrics.ID
 		encodedMetrics.MType = "counter"
 		encodedMetrics.Delta = decodedMetrics.Delta
+
+		//fmt.Println(encodedMetrics.ID, encodedMetrics.MType, encodedMetrics.Delta)
 
 		if err = s.producer.WriteEvent(&encodedMetrics); err != nil {
 			http.Error(res, err.Error(), http.StatusInternalServerError)

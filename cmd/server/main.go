@@ -87,7 +87,12 @@ func restoreFromBackup(storage *repository.MemStorage) {
 		sugar.Error("Failed to create consumer: ", err)
 		return
 	}
-	defer consumer.Close()
+	defer func(consumer *handler.Consumer) {
+		err = consumer.Close()
+		if err != nil {
+			sugar.Error("Failed to close consumer: ", err)
+		}
+	}(consumer)
 
 	event, err := consumer.ReadEvent()
 	if err != nil {
@@ -140,7 +145,10 @@ func runFinalBackup(storage *repository.MemStorage, producer *handler.Producer, 
 	<-stop
 
 	sugar.Info("Starting final backup...")
-	producer.Close()
+	err := producer.Close()
+	if err != nil {
+		sugar.Error("Failed to close producer: ", err)
+	}
 	if err := performBackup(storage, producer); err != nil {
 		sugar.Error("Final backup failed: ", err)
 	}
@@ -160,7 +168,12 @@ func performBackup(storage *repository.MemStorage, producer *handler.Producer) e
 	if err != nil {
 		return err
 	}
-	defer producer.Close()
+	defer func(producer *handler.Producer) {
+		err = producer.Close()
+		if err != nil {
+			sugar.Error("Failed to close producer: ", err)
+		}
+	}(producer)
 
 	// Бэкап gauge метрик
 	for _, gauge := range storage.GaugeSlice() {
@@ -231,12 +244,6 @@ func runHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 	sugar.Infof("Starting server on %s", flagRunAddr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		sugar.Error("Server failed: ", err)
-	}
-}
-
-func safeCloseProducer(p *handler.Producer) {
-	if err := p.Close(); err != nil {
-		sugar.Error("Failed to close producer: ", err)
 	}
 }
 

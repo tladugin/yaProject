@@ -121,6 +121,9 @@ func main() {
 		sugar.Info("Stopped backup store")
 		if _, err := os.Stat(flagFileStoragePath); !os.IsNotExist(err) {
 			err = os.Remove(flagFileStoragePath)
+			if err != nil {
+				sugar.Fatal(err)
+			}
 		}
 
 		producer, err := handler.NewProducer(flagFileStoragePath)
@@ -152,7 +155,6 @@ func main() {
 				return
 			}
 		}
-		return
 
 	}()
 	/*if flagStoreInterval == "0" {

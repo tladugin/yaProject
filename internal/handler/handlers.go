@@ -6,12 +6,74 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 )
 
-// создаем функцию NewServer которая возвращает указатель на нашу структуру Server, которая содержит storage
+type Consumer struct {
+	file    *os.File
+	decoder *json.Decoder
+}
+
+func NewConsumer(fileName string) (*Consumer, error) {
+	file, err := os.OpenFile(fileName, os.O_RDONLY|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Consumer{
+		file:    file,
+		decoder: json.NewDecoder(file),
+	}, nil
+}
+func (c *Consumer) Close() error {
+	return c.file.Close()
+}
+
+/*func (c *Consumer) ReadEvent() (*Event, error) {
+	event := &Event{}
+	if err := c.decoder.Decode(&event); err != nil {
+		return nil, err
+	}
+
+	return event, nil
+}
+
+*/
+
+type Producer struct {
+	file    *os.File
+	encoder *json.Encoder
+}
+
+func NewProducer(fileName string) (*Producer, error) {
+	file, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Producer{
+		file:    file,
+		encoder: json.NewEncoder(file),
+	}, nil
+}
+func (p *Producer) Close() error {
+	return p.file.Close()
+}
+func (p *Producer) WriteEvent(event *models.Metrics) error {
+	return p.encoder.Encode(&event)
+}
+
+func NewServerSync(s *repository.MemStorage, p *Producer) *ServerSync {
+	return &ServerSync{
+		storage:  s,
+		producer: p,
+	}
+
+}
 func NewServer(s *repository.MemStorage) *Server {
 	return &Server{
 		storage: s,
@@ -21,6 +83,12 @@ func NewServer(s *repository.MemStorage) *Server {
 
 type Server struct {
 	storage *repository.MemStorage
+	//producer *Producer
+}
+
+type ServerSync struct {
+	storage  *repository.MemStorage
+	producer *Producer
 }
 
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
@@ -53,6 +121,99 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 
 var metricCounter = 0
 
+func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Request) {
+	//metricCounter += 1
+
+	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
+
+	var decodedMetrics models.Metrics
+	var encodedMetrics models.Metrics
+	encoder := json.NewEncoder(res)
+	decoder := json.NewDecoder(req.Body)
+	err := decoder.Decode(&decodedMetrics)
+	if err != nil {
+		http.Error(res, "Wrong decoding", http.StatusNotAcceptable)
+		return
+	}
+	if decodedMetrics.ID == "" {
+		http.Error(res, "Wrong metric ID", http.StatusNotAcceptable)
+		return
+	}
+	defer func(Body io.ReadCloser) {
+		err = Body.Close()
+		if err != nil {
+
+		}
+	}(req.Body)
+	switch decodedMetrics.MType {
+	case "gauge":
+		//println(decodedMetrics.ID)
+		if decodedMetrics.Value == nil {
+			http.Error(res, "No gauge value", http.StatusNotAcceptable)
+			return
+		}
+		s.storage.AddGauge(decodedMetrics.ID, *decodedMetrics.Value)
+
+		encodedMetrics.ID = decodedMetrics.ID
+		encodedMetrics.MType = "gauge"
+		encodedMetrics.Value = decodedMetrics.Value
+
+		if err = s.producer.WriteEvent(&encodedMetrics); err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
+
+		err = encoder.Encode(encodedMetrics)
+		if err != nil {
+			return
+		}
+
+	case "counter":
+		if decodedMetrics.Delta == nil {
+			http.Error(res, "No counter delta", http.StatusNotAcceptable)
+			return
+		}
+		s.storage.AddCounter(decodedMetrics.ID, *decodedMetrics.Delta)
+
+		for m := range s.storage.CounterSlice() {
+			fmt.Println(s.storage.CounterSlice()[m].Name, s.storage.CounterSlice()[m].Value)
+		}
+		if err = s.producer.WriteEvent(&decodedMetrics); err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
+
+		encodedMetrics.ID = decodedMetrics.ID
+		encodedMetrics.MType = "counter"
+		encodedMetrics.Delta = decodedMetrics.Delta
+
+		if err = s.producer.WriteEvent(&encodedMetrics); err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
+
+		err = encoder.Encode(encodedMetrics)
+		if err != nil {
+			return
+		}
+
+	default:
+		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
+		return
+
+	}
+	/*if metricCounter == 30 {
+		metricCounter = 0
+		for m := range s.storage.GaugeSlice() {
+			log.Println("Name:", s.storage.GaugeSlice()[m].Name, "Value:", s.storage.GaugeSlice()[m].Value)
+		}
+		for m := range s.storage.CounterSlice() {
+			log.Println("Name:", s.storage.CounterSlice()[m].Name, "Value:", s.storage.CounterSlice()[m].Value)
+		}
+	}
+
+	*/
+
+}
 func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 	//metricCounter += 1
 
@@ -86,17 +247,27 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 		encodedMetrics.ID = decodedMetrics.ID
 		encodedMetrics.MType = "gauge"
 		encodedMetrics.Value = decodedMetrics.Value
-		encoder.Encode(encodedMetrics)
+
+		err := encoder.Encode(encodedMetrics)
+		if err != nil {
+			return
+		}
+
 	case "counter":
 		if decodedMetrics.Delta == nil {
 			http.Error(res, "No counter delta", http.StatusNotAcceptable)
 			return
 		}
 		s.storage.AddCounter(decodedMetrics.ID, *decodedMetrics.Delta)
+
 		encodedMetrics.ID = decodedMetrics.ID
 		encodedMetrics.MType = "counter"
 		encodedMetrics.Delta = decodedMetrics.Delta
-		encoder.Encode(encodedMetrics)
+
+		err := encoder.Encode(encodedMetrics)
+		if err != nil {
+			return
+		}
 
 	default:
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)

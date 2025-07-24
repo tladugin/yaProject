@@ -182,7 +182,6 @@ func main() {
 				storage.AddGauge("StackSys", float64(m.StackSys))
 				storage.AddGauge("Sys", float64(m.Sys))
 				storage.AddGauge("TotalAlloc", float64(m.TotalAlloc))
-
 				storage.AddGauge("RandomValue", rand.Float64())
 
 				storage.AddCounter("PollCount", 1)

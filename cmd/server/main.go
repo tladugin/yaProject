@@ -1,18 +1,16 @@
 package main
 
 import (
-	"github.com/go-chi/chi/v5"
 	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
-	models "github.com/tladugin/yaProject.git/internal/model"
+	"github.com/tladugin/yaProject.git/internal/server"
+
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"go.uber.org/zap"
 	"log"
-	"net/http"
-	"os"
-	"os/signal"
+
 	"sync"
-	"syscall"
+
 	"time"
 )
 
@@ -41,7 +39,7 @@ func main() {
 
 	// Восстановление данных из бэкапа
 	if flagRestore {
-		restoreFromBackup(storage)
+		handler.RestoreFromBackup(storage, flagFileStoragePath, sugar)
 	}
 
 	// Инициализация продюсера
@@ -66,213 +64,18 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runPeriodicBackup(storage, producer, storeInterval, stopProgram)
+			handler.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flagFileStoragePath, sugar)
 		}()
 	}
 
 	wg.Add(1)
-	go runFinalBackup(storage, producer, stopProgram, &wg)
+	go handler.RunFinalBackup(storage, producer, stopProgram, &wg, flagFileStoragePath, sugar)
 
 	wg.Add(1)
-	go runHTTPServer(storage, producer, stopProgram, &wg)
+	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, sugar, &flagRunAddr)
 
 	// Ожидание сигнала завершения
-	waitForShutdown(stopProgram)
+	handler.WaitForShutdown(stopProgram, *sugar)
 	wg.Wait()
 	sugar.Info("Application shutdown complete")
-}
-
-func restoreFromBackup(storage *repository.MemStorage) {
-	consumer, err := handler.NewConsumer(flagFileStoragePath)
-	if err != nil {
-		sugar.Error("Failed to create consumer: ", err)
-		return
-	}
-	defer func(consumer *handler.Consumer) {
-		err = consumer.Close()
-		if err != nil {
-			sugar.Error("Failed to close consumer: ", err)
-		}
-	}(consumer)
-
-	event, err := consumer.ReadEvent()
-	if err != nil {
-		sugar.Error("Failed to read event: ", err)
-		return
-	}
-
-	for event != nil {
-		switch event.MType {
-		case "gauge":
-			storage.AddGauge(event.ID, *event.Value)
-		case "counter":
-			storage.AddCounter(event.ID, *event.Delta)
-		}
-
-		event, err = consumer.ReadEvent()
-		if err != nil {
-			sugar.Info("Backup restore completed")
-			break
-		}
-	}
-	for m := range storage.GaugeSlice() {
-		sugar.Infoln(storage.GaugeSlice()[m].Name, storage.GaugeSlice()[m].Value)
-	}
-	for m := range storage.CounterSlice() {
-		sugar.Infoln(storage.CounterSlice()[m].Name, storage.CounterSlice()[m].Value)
-	}
-}
-
-func runPeriodicBackup(storage *repository.MemStorage, producer *handler.Producer, interval time.Duration, stop <-chan struct{}) {
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if err := performBackup(storage, producer); err != nil {
-				sugar.Error("Periodic backup failed: ", err)
-			} else {
-				sugar.Info("Periodic backup complete")
-			}
-		case <-stop:
-			return
-		}
-	}
-}
-
-func runFinalBackup(storage *repository.MemStorage, producer *handler.Producer, stop <-chan struct{}, wg *sync.WaitGroup) {
-	defer wg.Done()
-	<-stop
-
-	sugar.Info("Starting final backup...")
-
-	if err := performBackup(storage, producer); err != nil {
-		sugar.Error("Final backup failed: ", err)
-	}
-	sugar.Info("Final backup completed")
-}
-
-func performBackup(storage *repository.MemStorage, producer *handler.Producer) error {
-	var producerM sync.Mutex
-
-	producerM.Lock()
-	defer producerM.Unlock()
-
-	err = producer.Close()
-	if err != nil {
-		sugar.Error("Failed to close producer: ", err)
-	}
-	oldBackup := flagFileStoragePath + "_old"
-	if err := os.Remove(oldBackup); err != nil && !os.IsNotExist(err) {
-		log.Println("No old backup file: ", err)
-	}
-
-	err = os.Rename(flagFileStoragePath, oldBackup)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := os.Remove(flagFileStoragePath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	// Создаем новый продюсер (файл будет создан заново)
-	newProducer, err := handler.NewProducer(flagFileStoragePath)
-	if err != nil {
-		return err
-	}
-	/*defer func(producer *handler.Producer) {
-		err = producer.Close()
-		if err != nil {
-			sugar.Error("Failed to close producer: ", err)
-		}
-	}(producer)
-
-	*/
-
-	// Бэкап gauge метрик
-	for _, gauge := range storage.GaugeSlice() {
-		backup := models.Metrics{
-			ID:    gauge.Name,
-			MType: "gauge",
-			Value: &gauge.Value,
-		}
-		if err := newProducer.WriteEvent(&backup); err != nil {
-			return err
-		}
-	}
-
-	// Бэкап counter метрик
-	for _, counter := range storage.CounterSlice() {
-		backup := models.Metrics{
-			ID:    counter.Name,
-			MType: "counter",
-			Delta: &counter.Value,
-		}
-		if err := newProducer.WriteEvent(&backup); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func runHTTPServer(storage *repository.MemStorage, producer *handler.Producer, stop <-chan struct{}, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	s := handler.NewServer(storage)
-	sSync := handler.NewServerSync(storage, producer)
-
-	r := chi.NewRouter()
-	r.Use(repository.GzipMiddleware,
-		logger.LoggingAnswer(sugar),
-		logger.LoggingRequest(sugar),
-	)
-	r.Route("/", func(r chi.Router) {
-		r.Get("/", s.MainPage)
-		r.Get("/value/{metric}/{name}", s.GetHandler)
-		r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
-
-		if flagStoreInterval == "0" {
-			sugar.Info("Running in sync backup mode")
-			r.Post("/update", sSync.PostUpdateSyncBackup)
-			r.Post("/update/", sSync.PostUpdateSyncBackup)
-		} else {
-			sugar.Info("Running in async backup mode")
-			r.Post("/update", s.PostUpdate)
-			r.Post("/update/", s.PostUpdate)
-		}
-
-		r.Post("/value", s.PostValue)
-		r.Post("/value/", s.PostValue)
-	})
-
-	server := &http.Server{
-		Addr:    flagRunAddr,
-		Handler: r,
-	}
-
-	go func() {
-		<-stop
-		sugar.Info("Shutting down HTTP server...")
-		if err := server.Close(); err != nil {
-			sugar.Error("HTTP server shutdown error: ", err)
-		}
-	}()
-
-	sugar.Infof("Starting server on %s", flagRunAddr)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		sugar.Error("Server failed: ", err)
-	}
-}
-
-func waitForShutdown(stop chan<- struct{}) {
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
-
-	sig := <-shutdown
-	sugar.Infof("Received signal: %v. Shutting down...", sig)
-	close(stop)
-
 }

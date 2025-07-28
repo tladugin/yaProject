@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/tladugin/yaProject.git/internal/logger"
+	models "github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 
 	"log"
@@ -104,7 +105,7 @@ func main() {
 				sugar.Infoln("Sending metrics...")
 				//fmt.Println("Sending metrics...")
 				for i := range storage.GaugeSlice() {
-					err = repository.SendMetric(serverURL+"/update", "gauge", storage, i)
+					err = models.SendMetric(serverURL+"/update", "gauge", storage, i)
 					if err != nil {
 						sugar.Infoln(storage.GaugeSlice()[i])
 
@@ -113,7 +114,7 @@ func main() {
 
 				}
 				for i := range storage.CounterSlice() {
-					err = repository.SendMetric(serverURL+"/update", "counter", storage, i)
+					err = models.SendMetric(serverURL+"/update", "counter", storage, i)
 					if err != nil {
 						sugar.Infoln(storage.CounterSlice()[i])
 						sugar.Infoln("Error sending metric:", err)

@@ -100,7 +100,7 @@ func SendMetric(URL string, metricType string, storage *MemStorage, i int) error
 	// 3. Сжатие данных
 	buf, err := CompressData(jsonData)
 	if err != nil {
-		fmt.Errorf("compress data error: %w", err)
+		return fmt.Errorf("compress data error: %w", err)
 	}
 
 	// 4. Нормализация URL

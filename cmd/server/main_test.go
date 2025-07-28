@@ -92,7 +92,6 @@ func Test_runPeriodicBackup(t *testing.T) {
 		producer *handler.Producer
 		interval time.Duration
 		stop     <-chan struct{}
-		wg       *sync.WaitGroup
 	}
 	tests := []struct {
 		name string
@@ -102,7 +101,7 @@ func Test_runPeriodicBackup(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			runPeriodicBackup(tt.args.storage, tt.args.producer, tt.args.interval, tt.args.stop, tt.args.wg)
+			runPeriodicBackup(tt.args.storage, tt.args.producer, tt.args.interval, tt.args.stop)
 		})
 	}
 }

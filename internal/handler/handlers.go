@@ -1,7 +1,6 @@
 package handler
 
 import (
-
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -126,16 +125,13 @@ type Server struct {
 type ServerSync struct {
 	storage  *repository.MemStorage
 	producer *Producer
-
 }
 
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 
-
 	res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	res.Header().Set("Content-Encoding", "gzip")
 	res.Header().Set("Accept-Encoding", "gzip")
-
 
 	fmt.Fprint(res, "<html><body><ul>")
 	for m := range s.storage.GaugeSlice() {
@@ -158,9 +154,6 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 	}
 	fmt.Fprint(res, "</ul></body></html>")
 }
-
-
-var metricCounter = 0
 
 func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Request) {
 	//metricCounter += 1
@@ -399,7 +392,6 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 	//res.Header().Set("Content-Encoding", "gzip")
 	//res.Header().Set("Accept-Encoding", "gzip")
 
-
 	//params := chi.URLParam(req, "URL")
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 5 {
@@ -445,10 +437,8 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 }
 func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 
-
 	//res.Header().Set("Content-Encoding", "gzip")
 	//res.Header().Set("Accept-Encoding", "gzip")
-
 
 	metric := chi.URLParam(req, "metric")
 	//println(metric)
@@ -485,7 +475,6 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 				fmt.Fprint(res, s.storage.CounterSlice()[i].Value)
 
 				//res.WriteHeader(http.StatusOK)
-
 
 			}
 		}

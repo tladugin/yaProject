@@ -1,165 +1,54 @@
 package main
 
 import (
-
-	"bytes"
-	"compress/gzip"
-	"encoding/json"
-	"fmt"
-	models "github.com/tladugin/yaProject.git/internal/model"
-
+	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
-	"io"
+
 	"log"
 	"math/rand"
-	"net/http"
-
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"syscall"
 
 	"time"
 )
 
 const (
-
 	contentType = "Content-Type: application/json"
-
 )
-
-func sendMetric(URL string, metricType string, storage *repository.MemStorage, i int) error {
-
-
-	//var sendAddr string
-	var req *http.Request
-	var err error
-	var encodedMetrics models.Metrics
-
-	if metricType == "gauge" {
-		encodedMetrics.MType = "gauge"
-		encodedMetrics.ID = storage.GaugeSlice()[i].Name
-		encodedMetrics.Value = &storage.GaugeSlice()[i].Value
-
-		//sendAddr = fmt.Sprintf("%s%s/%s/%f", URL, metricType, storage.GaugeSlice()[i].Name, storage.GaugeSlice()[i].Value)
-
-	}
-	if metricType == "counter" {
-		//sendAddr = fmt.Sprintf("%s%s/%s/%d", URL, metricType, storage.CounterSlice()[i].Name, storage.CounterSlice()[i].Value)
-		//println(url)
-		encodedMetrics.MType = "counter"
-		encodedMetrics.ID = storage.CounterSlice()[i].Name
-		encodedMetrics.Delta = &storage.CounterSlice()[i].Value
-
-	}
-	//println("sendAddr:", sendAddr)
-	//println("URL:", URL)
-	jsonData, err := json.Marshal(&encodedMetrics)
-	if err != nil {
-		return err
-	}
-
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-
-	if _, err := gz.Write(jsonData); err != nil {
-		return fmt.Errorf("gzip write error: %w", err)
-	}
-
-	if err := gz.Close(); err != nil {
-		return fmt.Errorf("gzip close error: %w", err)
-	}
-	//println(buf.String())
-	if strings.HasPrefix(URL, "http://") {
-		req, err = http.NewRequest("POST", URL, &buf)
-
-		if err != nil {
-			return err
-		}
-	} else {
-
-		req, err = http.NewRequest("POST", "http://"+URL, &buf)
-
-		if err != nil {
-			return err
-		}
-	}
-	req.Header.Set("Content-Type", contentType)
-
-	req.Header.Set("Content-Encoding", "gzip")
-	req.Header.Set("Accept-Encoding", "gzip")
-	client := &http.Client{}
-	resp, err := client.Do(req)
-
-
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("metric send failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	return nil
-}
 
 func main() {
 
-	var err error
+	sugar, err := logger.InitLogger()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		_ = sugar.Sync() // Безопасное закрытие логгера
+	}()
 	var m runtime.MemStats
 
-
-	parseFlags()
+	flags := parseFlags()
+	flagRunAddr := flags[0]
+	reportIntervalTime := flags[1]
+	pollIntervalTime := flags[2]
 
 	serverURL := flagRunAddr
 	pollDuration, err := time.ParseDuration(pollIntervalTime + "s")
 	if err != nil {
-		log.Fatal("Invalid poll interval:", err)
+		sugar.Fatal("Invalid poll interval:", err)
 	}
 
 	reportDuration, err := time.ParseDuration(reportIntervalTime + "s")
 	if err != nil {
-		log.Fatal("Invalid report interval:", err)
+		sugar.Fatal("Invalid report interval:", err)
 	}
 	stopPoll := make(chan struct{})
 	stopReport := make(chan struct{})
 
-	/*pollIntervalTime, error := strconv.Atoi(pollIntervalTime)
-
-	if error != nil {
-		log.Fatal("Invalid value for pollInterval")
-	}
-
-	if pollIntervalTime < 0 {
-		log.Fatal("Invalid value for pollInterval")
-	}
-
-	reportIntervalTime, error := strconv.Atoi(reportIntervalTime)
-	if error != nil {
-		log.Fatal("Invalid value for reportInterval")
-	}
-	if reportIntervalTime < 0 {
-		log.Fatal("Invalid value for reportInterval")
-	}
-
-
-
-	*/
 	storage := repository.NewMemStorage()
 
-	//pollCounter := 0
-	//reportCounter := 0
-
-	//for {
-	//time.Sleep(1 * time.Second)
-	//pollCounter += 1   // счетчик секунд для обновления метрик
-	//reportCounter += 1 // счетчик секунд для отправки метрик
-	//if pollIntervalTime == pollCounter {
-	// Обновляем метрики здесь
-	//	pollCounter = 0
 	go func() {
 		pollTicker := time.NewTicker(pollDuration)
 		defer pollTicker.Stop()
@@ -168,7 +57,7 @@ func main() {
 			select {
 			case <-pollTicker.C:
 				runtime.ReadMemStats(&m)
-				log.Println("Updating metrics...")
+				sugar.Infoln("Updating metrics...")
 				//fmt.Println("Updating metrics...")
 				storage.AddGauge("Alloc", float64(m.Alloc))
 				storage.AddGauge("BuckHashSys", float64(m.BuckHashSys))
@@ -212,21 +101,22 @@ func main() {
 		for {
 			select {
 			case <-reportTicker.C:
-				log.Println("Sending metrics...")
+				sugar.Infoln("Sending metrics...")
 				//fmt.Println("Sending metrics...")
 				for i := range storage.GaugeSlice() {
-					err = sendMetric(serverURL+"/update", "gauge", storage, i)
+					err = repository.SendMetric(serverURL+"/update", "gauge", storage, i)
 					if err != nil {
-						fmt.Println(storage.GaugeSlice()[i])
-						fmt.Println("Error sending metric:", err)
+						sugar.Infoln(storage.GaugeSlice()[i])
+
+						sugar.Infoln("Error sending metric:", err)
 					}
 
 				}
 				for i := range storage.CounterSlice() {
-					err = sendMetric(serverURL+"/update", "counter", storage, i)
+					err = repository.SendMetric(serverURL+"/update", "counter", storage, i)
 					if err != nil {
-						fmt.Println(storage.CounterSlice()[i])
-						fmt.Println("Error sending metric:", err)
+						sugar.Infoln(storage.CounterSlice()[i])
+						sugar.Infoln("Error sending metric:", err)
 					}
 				}
 			case <-stopReport:
@@ -241,7 +131,7 @@ func main() {
 	// Останавливаем горутины
 	close(stopPoll)
 	close(stopReport)
-	log.Println("Shutting down...")
+	sugar.Infoln("Shutting down...")
 	//println(storage.CounterSlice()[0].Value)
 
 	//if reportIntervalTime == reportCounter {
@@ -251,4 +141,3 @@ func main() {
 
 //}
 //}
-

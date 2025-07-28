@@ -1,13 +1,13 @@
 package main
 
 import (
-
 	"github.com/go-chi/chi/v5"
 	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	models "github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"go.uber.org/zap"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,21 +17,25 @@ import (
 )
 
 // logger
-var (
-	sugar     *zap.SugaredLogger
-	producerM sync.Mutex
-
-)
+var sugar *zap.SugaredLogger
+var err error
 
 func main() {
 	parseFlags()
 
-
 	// Инициализация логгера
-	initLogger()
+	sugar, err = logger.InitLogger()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer func() {
 		_ = sugar.Sync() // Безопасное закрытие логгера
 	}()
+
+	// Убедимся, что sugar не nil
+	if sugar == nil {
+		log.Fatal("Logger initialization failed")
+	}
 
 	storage := repository.NewMemStorage()
 
@@ -60,7 +64,10 @@ func main() {
 	// Запуск фоновых задач
 	if flagStoreInterval != "0" {
 		wg.Add(1)
-		go runPeriodicBackup(storage, producer, storeInterval, stopProgram, &wg)
+		go func() {
+			defer wg.Done()
+			runPeriodicBackup(storage, producer, storeInterval, stopProgram)
+		}()
 	}
 
 	wg.Add(1)
@@ -73,16 +80,6 @@ func main() {
 	waitForShutdown(stopProgram)
 	wg.Wait()
 	sugar.Info("Application shutdown complete")
-}
-
-func initLogger() {
-	log, err := zap.NewProduction(
-		zap.ErrorOutput(os.Stdout), // Перенаправляем ошибки в stdout
-	)
-	if err != nil {
-		panic(err)
-	}
-	sugar = log.Sugar()
 }
 
 func restoreFromBackup(storage *repository.MemStorage) {
@@ -126,8 +123,7 @@ func restoreFromBackup(storage *repository.MemStorage) {
 	}
 }
 
-func runPeriodicBackup(storage *repository.MemStorage, producer *handler.Producer, interval time.Duration, stop <-chan struct{}, wg *sync.WaitGroup) {
-	defer wg.Done()
+func runPeriodicBackup(storage *repository.MemStorage, producer *handler.Producer, interval time.Duration, stop <-chan struct{}) {
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -137,6 +133,8 @@ func runPeriodicBackup(storage *repository.MemStorage, producer *handler.Produce
 		case <-ticker.C:
 			if err := performBackup(storage, producer); err != nil {
 				sugar.Error("Periodic backup failed: ", err)
+			} else {
+				sugar.Info("Periodic backup complete")
 			}
 		case <-stop:
 			return
@@ -149,10 +147,7 @@ func runFinalBackup(storage *repository.MemStorage, producer *handler.Producer, 
 	<-stop
 
 	sugar.Info("Starting final backup...")
-	err := producer.Close()
-	if err != nil {
-		sugar.Error("Failed to close producer: ", err)
-	}
+
 	if err := performBackup(storage, producer); err != nil {
 		sugar.Error("Final backup failed: ", err)
 	}
@@ -160,9 +155,24 @@ func runFinalBackup(storage *repository.MemStorage, producer *handler.Producer, 
 }
 
 func performBackup(storage *repository.MemStorage, producer *handler.Producer) error {
+	var producerM sync.Mutex
+
 	producerM.Lock()
 	defer producerM.Unlock()
 
+	err = producer.Close()
+	if err != nil {
+		sugar.Error("Failed to close producer: ", err)
+	}
+	oldBackup := flagFileStoragePath + "_old"
+	if err := os.Remove(oldBackup); err != nil && !os.IsNotExist(err) {
+		log.Println("No old backup file: ", err)
+	}
+
+	err = os.Rename(flagFileStoragePath, oldBackup)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if err := os.Remove(flagFileStoragePath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -172,12 +182,14 @@ func performBackup(storage *repository.MemStorage, producer *handler.Producer) e
 	if err != nil {
 		return err
 	}
-	defer func(producer *handler.Producer) {
+	/*defer func(producer *handler.Producer) {
 		err = producer.Close()
 		if err != nil {
 			sugar.Error("Failed to close producer: ", err)
 		}
 	}(producer)
+
+	*/
 
 	// Бэкап gauge метрик
 	for _, gauge := range storage.GaugeSlice() {
@@ -213,23 +225,27 @@ func runHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 	sSync := handler.NewServerSync(storage, producer)
 
 	r := chi.NewRouter()
+	r.Use(repository.GzipMiddleware,
+		logger.LoggingAnswer(sugar),
+		logger.LoggingRequest(sugar),
+	)
 	r.Route("/", func(r chi.Router) {
-		r.Get("/", logger.LoggingAnswer(gzipMiddleware(s.MainPage), *sugar))
-		r.Get("/value/{metric}/{name}", logger.LoggingAnswer(s.GetHandler, *sugar))
-		r.Post("/update/{metric}/{name}/{value}", logger.LoggingRequest(s.PostHandler, *sugar))
+		r.Get("/", s.MainPage)
+		r.Get("/value/{metric}/{name}", s.GetHandler)
+		r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
 
 		if flagStoreInterval == "0" {
 			sugar.Info("Running in sync backup mode")
-			r.Post("/update", logger.LoggingRequest(gzipMiddleware(sSync.PostUpdateSyncBackup), *sugar))
-			r.Post("/update/", logger.LoggingRequest(gzipMiddleware(sSync.PostUpdateSyncBackup), *sugar))
+			r.Post("/update", sSync.PostUpdateSyncBackup)
+			r.Post("/update/", sSync.PostUpdateSyncBackup)
 		} else {
 			sugar.Info("Running in async backup mode")
-			r.Post("/update", logger.LoggingRequest(gzipMiddleware(s.PostUpdate), *sugar))
-			r.Post("/update/", logger.LoggingRequest(gzipMiddleware(s.PostUpdate), *sugar))
+			r.Post("/update", s.PostUpdate)
+			r.Post("/update/", s.PostUpdate)
 		}
 
-		r.Post("/value", logger.LoggingRequest(gzipMiddleware(s.PostValue), *sugar))
-		r.Post("/value/", logger.LoggingRequest(gzipMiddleware(s.PostValue), *sugar))
+		r.Post("/value", s.PostValue)
+		r.Post("/value/", s.PostValue)
 	})
 
 	server := &http.Server{

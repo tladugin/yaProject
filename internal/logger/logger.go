@@ -3,38 +3,52 @@ package logger
 import (
 	"go.uber.org/zap"
 	"net/http"
+	"os"
+
 	"time"
 )
 
-func LoggingRequest(h http.HandlerFunc, sugar zap.SugaredLogger) http.HandlerFunc {
+func InitLogger() (*zap.SugaredLogger, error) {
 
-	logFn := func(w http.ResponseWriter, r *http.Request) {
+	log, err := zap.NewProduction(
+		zap.ErrorOutput(os.Stdout), // Перенаправляем ошибки в stdout
+	)
+	if err != nil {
+		return nil, err
+	}
+	sugar := log.Sugar()
 
-		start := time.Now()
-		// эндпоинт /ping
-		uri := r.RequestURI
-		// метод запроса
-		method := r.Method
-		// функция Now() возвращает текущее время
+	return sugar, nil
+}
 
-		// точка, где выполняется хендлер pingHandler
-		h.ServeHTTP(w, r) // обслуживание оригинального запроса
+func LoggingRequest(sugar *zap.SugaredLogger) func(h http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		// Since возвращает разницу во времени между start
-		// и моментом вызова Since. Таким образом можно посчитать
-		// время выполнения запроса.
-		duration := time.Since(start)
+			start := time.Now()
+			// эндпоинт
+			uri := r.RequestURI
+			// метод запроса
+			method := r.Method
 
-		// отправляем сведения о запросе в zap
-		sugar.Infoln(
-			"URL:", uri,
-			"METHOD:", method,
-			"DURATION:", duration,
-		)
+			// точка, где выполняется хендлер pingHandler
+			h.ServeHTTP(w, r) // обслуживание оригинального запроса
+
+			// Since возвращает разницу во времени между start
+			// и моментом вызова Since. Таким образом можно посчитать
+			// время выполнения запроса.
+			duration := time.Since(start)
+
+			// отправляем сведения о запросе в zap
+			sugar.Infoln(
+				"URL:", uri,
+				"METHOD:", method,
+				"DURATION:", duration,
+			)
+
+		})
 
 	}
-	// возвращаем функционально расширенный хендлер
-	return http.HandlerFunc(logFn)
 }
 
 type (
@@ -63,24 +77,24 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
 	r.responseData.status = statusCode // захватываем код статуса
 }
-func LoggingAnswer(h http.HandlerFunc, sugar zap.SugaredLogger) http.HandlerFunc {
-	logFn := func(w http.ResponseWriter, r *http.Request) {
+func LoggingAnswer(sugar *zap.SugaredLogger) func(h http.Handler) http.Handler {
+	return func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		responseData := &responseData{
-			status: 200,
-			size:   0,
-		}
-		lw := &loggingResponseWriter{
-			ResponseWriter: w, // встраиваем оригинальный http.ResponseWriter
-			responseData:   responseData,
-		}
-		h.ServeHTTP(lw, r) // внедряем реализацию http.ResponseWriter
+			responseData := &responseData{
+				status: 200,
+				size:   0,
+			}
+			lw := &loggingResponseWriter{
+				ResponseWriter: w, // встраиваем оригинальный http.ResponseWriter
+				responseData:   responseData,
+			}
+			h.ServeHTTP(lw, r) // внедряем реализацию http.ResponseWriter
 
-		sugar.Infoln(
-			"STATUS CODE:", responseData.status, // получаем перехваченный код статуса ответа
-			"ANSWER SIZE:", responseData.size, // получаем перехваченный размер ответа
-		)
+			sugar.Infoln(
+				"STATUS CODE:", responseData.status, // получаем перехваченный код статуса ответа
+				"ANSWER SIZE:", responseData.size, // получаем перехваченный размер ответа
+			)
+		})
 	}
-	// возвращаем функционально расширенный хендлер
-	return http.HandlerFunc(logFn)
 }

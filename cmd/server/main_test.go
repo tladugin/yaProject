@@ -8,19 +8,6 @@ import (
 	"time"
 )
 
-func Test_initLogger(t *testing.T) {
-	tests := []struct {
-		name string
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			initLogger()
-		})
-	}
-}
-
 func Test_performBackup(t *testing.T) {
 	type args struct {
 		storage  *repository.MemStorage

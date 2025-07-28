@@ -1,25 +1,19 @@
 package main
 
-
 import (
 	"flag"
 	"os"
+	"strings"
 )
-
-/*type Config struct {
-	AD []string `env:"ADDRESS"`
-	PI string   `env:"POLL_INTERVAL"`
-	RI string   `env:"REPORT_INTERVAL"`
-}*/
-
-
-var flagRunAddr string
-var reportIntervalTime string
-var pollIntervalTime string
 
 // parseFlags обрабатывает аргументы командной строки
 // и сохраняет их значения в соответствующих переменных
-func parseFlags() {
+func parseFlags() []string {
+
+	var flagRunAddr string
+	var reportIntervalTime string
+	var pollIntervalTime string
+
 	// регистрируем переменную flagRunAddr
 	// как аргумент -a со значением :8080 по умолчанию
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "address and port to run server")
@@ -28,15 +22,19 @@ func parseFlags() {
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
 
-
-	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
+	envRunAddr, ok := os.LookupEnv("ADDRESS")
+	if ok && strings.TrimSpace(envRunAddr) != "" {
 		flagRunAddr = envRunAddr
 	}
-	if envReportInter := os.Getenv("REPORT_INTERVAL"); envReportInter != "" {
+
+	envReportInter, ok := os.LookupEnv("REPORT_INTERVAL")
+	if ok && strings.TrimSpace(envReportInter) != "" {
 		reportIntervalTime = envReportInter
 	}
-	if envPortInter := os.Getenv("POLL_INTERVAL"); envPortInter != "" {
+
+	envPortInter, ok := os.LookupEnv("POLL_INTERVAL")
+	if ok && strings.TrimSpace(envPortInter) != "" {
 		pollIntervalTime = envPortInter
 	}
-
+	return []string{flagRunAddr, reportIntervalTime, pollIntervalTime}
 }

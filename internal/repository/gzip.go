@@ -1,7 +1,9 @@
-package main
+package repository
 
 import (
+	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -71,8 +73,8 @@ func (c *compressReader) Close() error {
 	return c.zr.Close()
 }
 
-func gzipMiddleware(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func GzipMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// по умолчанию устанавливаем оригинальный http.ResponseWriter как тот,
 		// который будем передавать следующей функции
 		ow := w
@@ -106,5 +108,19 @@ func gzipMiddleware(h http.HandlerFunc) http.HandlerFunc {
 
 		// передаём управление хендлеру
 		h.ServeHTTP(ow, r)
+	})
+}
+func CompressData(data []byte) (*bytes.Buffer, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+
+	if _, err := gz.Write(data); err != nil {
+		return nil, fmt.Errorf("gzip write error: %w", err)
 	}
+
+	if err := gz.Close(); err != nil {
+		return nil, fmt.Errorf("gzip close error: %w", err)
+	}
+
+	return &buf, nil
 }

@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/tladugin/yaProject.git/internal/logger"
-	models "github.com/tladugin/yaProject.git/internal/model"
+	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 
 	"log"
@@ -26,7 +26,10 @@ func main() {
 		log.Fatal(err)
 	}
 	defer func() {
-		_ = sugar.Sync() // Безопасное закрытие логгера
+		err = sugar.Sync() // Безопасное закрытие логгера
+		if err != nil {
+			log.Fatal(err)
+		}
 	}()
 	var m runtime.MemStats
 

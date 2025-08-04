@@ -237,3 +237,22 @@ func WaitForShutdown(stop chan<- struct{}, sugar zap.SugaredLogger) {
 	close(stop)
 
 }
+
+/*func ConnectDB(flagConnectString string) {
+
+	var ctx = context.Background()
+	db, err := pgx.Connect(ctx, flagConnectString)
+
+	if err != nil {
+		log.Println(err)
+	}
+	defer func(db *pgx.Conn, ctx context.Context) {
+		err = db.Close(ctx)
+		if err != nil {
+			log.Println(err)
+		}
+	}(db, ctx)
+
+}
+
+*/

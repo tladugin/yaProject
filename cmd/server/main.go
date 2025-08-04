@@ -72,7 +72,7 @@ func main() {
 	go handler.RunFinalBackup(storage, producer, stopProgram, &wg, flagFileStoragePath, sugar)
 
 	wg.Add(1)
-	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, sugar, &flagRunAddr)
+	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, sugar, &flagRunAddr, &flagConnectString)
 
 	// Ожидание сигнала завершения
 	handler.WaitForShutdown(stopProgram, *sugar)

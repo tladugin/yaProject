@@ -1,11 +1,15 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
+	"log"
+
 	"io"
 
 	"net/http"
@@ -30,8 +34,19 @@ func NewServer(s *repository.MemStorage) *Server {
 
 type Server struct {
 	storage *repository.MemStorage
+}
 
-	//producer *Producer
+func NewServerDB(s *repository.MemStorage, c *string) *ServerDB {
+	return &ServerDB{
+		storage:       s,
+		connectString: c,
+	}
+
+}
+
+type ServerDB struct {
+	storage       *repository.MemStorage
+	connectString *string
 }
 
 type ServerSync struct {
@@ -374,4 +389,23 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, "Invalid metric type", http.StatusNotFound)
 
 	}
+}
+func (s *ServerDB) GetPing(res http.ResponseWriter, req *http.Request) {
+
+	var ctx = context.Background()
+	db, err := pgx.Connect(ctx, *s.connectString)
+
+	if err != nil {
+		http.Error(res, "Connection error", http.StatusInternalServerError)
+		log.Println(err)
+	} else {
+		res.WriteHeader(http.StatusOK)
+
+	}
+	defer func(db *pgx.Conn, ctx context.Context) {
+		err = db.Close(ctx)
+		if err != nil {
+			log.Println(err)
+		}
+	}(db, ctx)
 }

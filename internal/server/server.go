@@ -2,18 +2,23 @@ package server
 
 import (
 	"github.com/go-chi/chi/v5"
+
 	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"go.uber.org/zap"
+
 	"net/http"
 	"sync"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, sugar *zap.SugaredLogger, flagRunAddr *string) {
+func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, sugar *zap.SugaredLogger, flagRunAddr *string, flagConnectString *string) {
 	defer wg.Done()
 
 	s := handler.NewServer(storage)
+	c := handler.NewServerDB(storage, flagConnectString)
 	sSync := handler.NewServerSync(storage, producer)
 
 	r := chi.NewRouter()
@@ -22,7 +27,9 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 		logger.LoggingRequest(sugar),
 	)
 	r.Route("/", func(r chi.Router) {
+
 		r.Get("/", s.MainPage)
+		r.Get("/ping", c.GetPing)
 		r.Get("/value/{metric}/{name}", s.GetHandler)
 		r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
 

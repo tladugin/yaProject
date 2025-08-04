@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-const defaultDns = ""
+const defaultDNS = ""
 
 var (
 	flagRunAddr         string
@@ -26,7 +26,7 @@ func parseFlags() {
 	flag.StringVar(&flagFileStoragePath, "f", "server_backup", "path for server backup file")
 	flag.BoolVar(&flagRestore, "r", false, "restore server data")
 
-	flag.StringVar(&flagConnectString, "d", defaultDns, "database connect parameters")
+	flag.StringVar(&flagConnectString, "d", defaultDNS, "database connect parameters")
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
 

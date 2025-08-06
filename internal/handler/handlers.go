@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"log"
@@ -392,8 +392,7 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 }
 func (s *ServerDB) GetPing(res http.ResponseWriter, req *http.Request) {
 
-	var ctx = context.Background()
-	db, err := pgx.Connect(ctx, *s.connectString)
+	db, ctx, err := repository.GetConnection(*s.connectString)
 
 	if err != nil {
 		http.Error(res, "Connection error", http.StatusInternalServerError)
@@ -402,10 +401,8 @@ func (s *ServerDB) GetPing(res http.ResponseWriter, req *http.Request) {
 		res.WriteHeader(http.StatusOK)
 
 	}
-	defer func(db *pgx.Conn, ctx context.Context) {
-		err = db.Close(ctx)
-		if err != nil {
-			log.Println(err)
-		}
+	defer func(db *pgxpool.Pool, ctx context.Context) {
+		db.Close()
+
 	}(db, ctx)
 }

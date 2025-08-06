@@ -14,11 +14,18 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, sugar *zap.SugaredLogger, flagRunAddr *string, flagConnectString *string) {
+func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, sugar *zap.SugaredLogger, flagRunAddr *string, flagDatabaseDSN *string) {
 	defer wg.Done()
 
 	s := handler.NewServer(storage)
-	c := handler.NewServerDB(storage, flagConnectString)
+	if flagDatabaseDSN != nil {
+		repo, _, err := repository.NewPostgresRepository(*flagDatabaseDSN)
+		if err != nil {
+			sugar.Error("Failed to initialize storage: %v", err.Error())
+		}
+		defer repo.Close()
+	}
+	c := handler.NewServerDB(storage, flagDatabaseDSN)
 	sSync := handler.NewServerSync(storage, producer)
 
 	r := chi.NewRouter()

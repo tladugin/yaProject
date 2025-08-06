@@ -5,14 +5,14 @@ import (
 	"os"
 )
 
-const defaultDNS = ""
+const defaultDSN = ""
 
 var (
 	flagRunAddr         string
 	flagStoreInterval   string
 	flagFileStoragePath string
 	flagRestore         bool
-	flagConnectString   string
+	flagDatabaseDSN     string
 )
 
 // parseFlags обрабатывает аргументы командной строки
@@ -26,7 +26,7 @@ func parseFlags() {
 	flag.StringVar(&flagFileStoragePath, "f", "server_backup", "path for server backup file")
 	flag.BoolVar(&flagRestore, "r", false, "restore server data")
 
-	flag.StringVar(&flagConnectString, "d", defaultDNS, "database connect parameters")
+	flag.StringVar(&flagDatabaseDSN, "d", defaultDSN, "database DSN")
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
 
@@ -43,7 +43,7 @@ func parseFlags() {
 		flagRestore = true
 	}
 	if envConnectString := os.Getenv("DATABASE_DSN"); envConnectString != "" {
-		flagConnectString = envConnectString
+		flagDatabaseDSN = envConnectString
 	}
 
 }

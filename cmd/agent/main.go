@@ -52,8 +52,10 @@ func main() {
 	stopReport := make(chan struct{})
 
 	storage := repository.NewMemStorage()
-
+	var pollCounter int64 = 0
+	storage.AddCounter("PollCount", 0)
 	go func() {
+
 		pollTicker := time.NewTicker(pollDuration)
 		defer pollTicker.Stop()
 
@@ -91,8 +93,8 @@ func main() {
 				storage.AddGauge("Sys", float64(m.Sys))
 				storage.AddGauge("TotalAlloc", float64(m.TotalAlloc))
 				storage.AddGauge("RandomValue", rand.Float64())
+				pollCounter++
 
-				storage.AddCounter("PollCount", 1)
 			case <-stopPoll:
 				return
 			}
@@ -107,6 +109,7 @@ func main() {
 			case <-reportTicker.C:
 				sugar.Infoln("Sending metrics...")
 				//fmt.Println("Sending metrics...")
+
 				for i := range storage.GaugeSlice() {
 					err = models.SendMetric(serverURL+"/update", "gauge", storage, i)
 					if err != nil {
@@ -117,10 +120,13 @@ func main() {
 
 				}
 				for i := range storage.CounterSlice() {
+					storage.AddCounter("PollCount", pollCounter)
 					err = models.SendMetric(serverURL+"/update", "counter", storage, i)
 					if err != nil {
 						sugar.Infoln(storage.CounterSlice()[i])
 						sugar.Infoln("Error sending metric:", err)
+					} else {
+						pollCounter = 0
 					}
 				}
 			case <-stopReport:

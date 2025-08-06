@@ -1,0 +1,102 @@
+package repository
+
+import (
+	"context"
+	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"log"
+	"os"
+)
+
+func GetConnection(databaseDSN string) (*pgxpool.Pool, context.Context, error) {
+
+	var ctx = context.Background()
+	//db, err := pgx.Connect(ctx, databaseDSN)
+	poolConfig, err := pgxpool.ParseConfig(databaseDSN)
+	if err != nil {
+		fmt.Errorf("failed to parse PostgreSQL DSN: %w", err)
+	} else {
+		fmt.Errorf("Connected to database")
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		fmt.Errorf("failed to create connection pool: %w", err)
+	}
+	// Проверяем соединение
+	if err := pool.Ping(ctx); err != nil {
+		fmt.Errorf("failed to ping PostgreSQL: %w", err)
+	}
+
+	// Применяем миграции
+	if err = applyMigrations(pool, ctx); err != nil {
+		fmt.Errorf("failed to apply migrations: %w", err)
+	}
+
+	return pool, ctx, err
+}
+func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
+	// Проверяем существование таблицы миграций
+	var exists bool
+	err := db.QueryRow(ctx, "SELECT EXISTS (SELECT FROM information_schema.tables 	WHERE table_name = 'migrations'	)").Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check migrations table: %w", err)
+
+	}
+	if !exists {
+		// Создаем таблицу миграций
+		_, err = db.Exec(ctx, "CREATE TABLE migrations (	id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, applied_at TIMESTAMP NOT NULL DEFAULT NOW())")
+		if err != nil {
+			return fmt.Errorf("failed to create migrations table: %w", err)
+		}
+	}
+
+	// Применяем начальную миграцию
+	var applied bool
+	err = db.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM migrations WHERE name = '000001_create_metrics_table')").Scan(&applied)
+	if err != nil {
+		return fmt.Errorf("failed to check initial migration: %w", err)
+	}
+
+	if !applied {
+		// Читаем SQL из файла миграции
+		migrationSQL, err := os.ReadFile("000001_create_metrics_table.up.sql")
+		if err != nil {
+			return fmt.Errorf("failed to read migration file: %w", err)
+		}
+
+		// Выполняем в транзакции
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer tx.Rollback(ctx)
+
+		if _, err := tx.Exec(ctx, string(migrationSQL)); err != nil {
+			return fmt.Errorf("failed to execute migration: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx, "INSERT INTO migrations (name) VALUES ('000001_create_metrics_table')"); err != nil {
+			return fmt.Errorf("failed to record migration: %w", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("failed to commit migration: %w", err)
+		}
+	}
+
+	return nil
+}
+func NewPostgresRepository(databaseDSN string) (*pgxpool.Pool, context.Context, error) {
+	db, ctx, err := GetConnection(databaseDSN)
+	if err != nil {
+		log.Println(err)
+	}
+	defer ctx.Done()
+	if err := db.Ping(ctx); err != nil {
+		log.Println(err)
+	}
+	if err := applyMigrations(db, ctx); err != nil {
+		fmt.Errorf("failed to apply migrations: %w", err)
+	}
+	return db, ctx, nil
+}

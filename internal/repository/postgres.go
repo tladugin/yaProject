@@ -6,14 +6,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log"
 	"os"
-	"time"
 )
 
 func GetConnection(databaseDSN string) (*pgxpool.Pool, context.Context, context.CancelFunc, error) {
 	// Создаем контекст с таймаутом для инициализации подключения
-	initCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
+	//initCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	//defer cancel()
+	initCtx := context.Background()
 	// Парсим конфигурацию пула соединений
 	poolConfig, err := pgxpool.ParseConfig(databaseDSN)
 	if err != nil {

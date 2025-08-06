@@ -18,7 +18,7 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 	defer wg.Done()
 
 	s := handler.NewServer(storage)
-	if *flagDatabaseDSN != "" {
+	/*if *flagDatabaseDSN != "" {
 		repo, _, err := repository.NewPostgresRepository(*flagDatabaseDSN)
 		if err != nil {
 			sugar.Error("Failed to initialize storage: %v", err.Error())
@@ -26,6 +26,8 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 		defer repo.Close()
 	}
 
+
+	*/
 	c := handler.NewServerDB(storage, flagDatabaseDSN)
 	sSync := handler.NewServerSync(storage, producer)
 

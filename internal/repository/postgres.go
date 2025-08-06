@@ -6,13 +6,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log"
 	"os"
+	"time"
 )
 
 func GetConnection(databaseDSN string) (*pgxpool.Pool, context.Context, context.CancelFunc, error) {
 	// Создаем контекст с таймаутом для инициализации подключения
-	//initCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	//defer cancel()
-	initCtx := context.Background()
+	initCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	//initCtx := context.Background()
 	// Парсим конфигурацию пула соединений
 	poolConfig, err := pgxpool.ParseConfig(databaseDSN)
 	if err != nil {
@@ -41,10 +42,12 @@ func GetConnection(databaseDSN string) (*pgxpool.Pool, context.Context, context.
 	}
 
 	// Применяем миграции
-	if err := applyMigrations(pool, initCtx); err != nil {
+	/*if err := applyMigrations(pool, initCtx); err != nil {
 		pool.Close()
 		return nil, nil, nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
+
+	*/
 
 	// Возвращаем новый контекст для использования в вызывающем коде
 	ctx, cancelFunc := context.WithCancel(context.Background())
@@ -76,7 +79,7 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 
 	if !applied {
 		// Читаем SQL из файла миграции
-		migrationSQL, err := os.ReadFile("000001_create_metrics_table.up.sql")
+		migrationSQL, err := os.ReadFile("migrations/000001_create_metrics_table.up.sql")
 		if err != nil {
 			return fmt.Errorf("failed to read migration file: %w", err)
 		}
@@ -92,7 +95,7 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 			return fmt.Errorf("failed to execute migration: %w", err)
 		}
 
-		if _, err := tx.Exec(ctx, "INSERT INTO migrations (name) VALUES ('000001_create_metrics_table')"); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO migrations (name) VALUES ('migrations/000001_create_metrics_table')"); err != nil {
 			return fmt.Errorf("failed to record migration: %w", err)
 		}
 

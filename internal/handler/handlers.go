@@ -1,11 +1,9 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"log"
@@ -38,15 +36,15 @@ type Server struct {
 
 func NewServerDB(s *repository.MemStorage, c *string) *ServerDB {
 	return &ServerDB{
-		storage:       s,
-		connectString: c,
+		storage:     s,
+		databaseDSN: c,
 	}
 
 }
 
 type ServerDB struct {
-	storage       *repository.MemStorage
-	connectString *string
+	storage     *repository.MemStorage
+	databaseDSN *string
 }
 
 type ServerSync struct {
@@ -392,17 +390,16 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 }
 func (s *ServerDB) GetPing(res http.ResponseWriter, req *http.Request) {
 
-	db, ctx, err := repository.GetConnection(*s.connectString)
+	pool, _, cancel, err := repository.GetConnection(*s.databaseDSN)
 
 	if err != nil {
 		http.Error(res, "Connection error", http.StatusInternalServerError)
-		log.Println(err)
+		log.Fatalf("Connection error: %v", err)
 	} else {
 		res.WriteHeader(http.StatusOK)
 
 	}
-	defer func(db *pgxpool.Pool, ctx context.Context) {
-		db.Close()
+	defer cancel()
+	defer pool.Close()
 
-	}(db, ctx)
 }

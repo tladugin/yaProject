@@ -6,33 +6,51 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log"
 	"os"
+	"time"
 )
 
-func GetConnection(databaseDSN string) (*pgxpool.Pool, context.Context, error) {
+func GetConnection(databaseDSN string) (*pgxpool.Pool, context.Context, context.CancelFunc, error) {
+	// Создаем контекст с таймаутом для инициализации подключения
+	initCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	var ctx = context.Background()
-	//db, err := pgx.Connect(ctx, databaseDSN)
+	// Парсим конфигурацию пула соединений
 	poolConfig, err := pgxpool.ParseConfig(databaseDSN)
 	if err != nil {
-		return nil, ctx, fmt.Errorf("failed to parse PostgreSQL DSN: %w", err)
-	} else {
-		fmt.Println("Connected to database")
+		return nil, nil, nil, fmt.Errorf("failed to parse PostgreSQL DSN: %w", err)
 	}
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+
+	/*
+		poolConfig.MinConns = 2
+		poolConfig.MaxConns = 10
+		poolConfig.MaxConnLifetime = 1 * time.Hour
+		poolConfig.MaxConnIdleTime = 30 * time.Minute
+		poolConfig.HealthCheckPeriod = 1 * time.Minute
+
+	*/
+
+	// Создаем пул соединений
+	pool, err := pgxpool.NewWithConfig(initCtx, poolConfig)
 	if err != nil {
-		return nil, ctx, fmt.Errorf("failed to create connection pool: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
+
 	// Проверяем соединение
-	if err := pool.Ping(ctx); err != nil {
-		return nil, ctx, fmt.Errorf("failed to ping PostgreSQL: %w", err)
+	if err := pool.Ping(initCtx); err != nil {
+		pool.Close()
+		return nil, nil, nil, fmt.Errorf("failed to ping PostgreSQL: %w", err)
 	}
 
 	// Применяем миграции
-	if err = applyMigrations(pool, ctx); err != nil {
-		return nil, ctx, fmt.Errorf("failed to apply migrations: %w", err)
+	if err := applyMigrations(pool, initCtx); err != nil {
+		pool.Close()
+		return nil, nil, nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
-	return pool, ctx, err
+	// Возвращаем новый контекст для использования в вызывающем коде
+	ctx, cancelFunc := context.WithCancel(context.Background())
+
+	return pool, ctx, cancelFunc, nil
 }
 func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 	// Проверяем существование таблицы миграций
@@ -87,16 +105,15 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 	return nil
 }
 func NewPostgresRepository(databaseDSN string) (*pgxpool.Pool, context.Context, error) {
-	db, ctx, err := GetConnection(databaseDSN)
+	pool, ctx, cancel, err := GetConnection(databaseDSN)
 	if err != nil {
 		log.Println(err)
 	}
-	defer ctx.Done()
-	if err := db.Ping(ctx); err != nil {
-		log.Println(err)
-	}
-	if err := applyMigrations(db, ctx); err != nil {
+	defer cancel()
+	defer pool.Close()
+	if err := applyMigrations(pool, ctx); err != nil {
 		return nil, ctx, fmt.Errorf("failed to apply migrations: %w", err)
 	}
-	return db, ctx, nil
+
+	return pool, ctx, nil
 }

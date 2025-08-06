@@ -14,22 +14,22 @@ func GetConnection(databaseDSN string) (*pgxpool.Pool, context.Context, error) {
 	//db, err := pgx.Connect(ctx, databaseDSN)
 	poolConfig, err := pgxpool.ParseConfig(databaseDSN)
 	if err != nil {
-		fmt.Errorf("failed to parse PostgreSQL DSN: %w", err)
+		return nil, ctx, fmt.Errorf("failed to parse PostgreSQL DSN: %w", err)
 	} else {
-		fmt.Errorf("Connected to database")
+		fmt.Println("Connected to database")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		fmt.Errorf("failed to create connection pool: %w", err)
+		return nil, ctx, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 	// Проверяем соединение
 	if err := pool.Ping(ctx); err != nil {
-		fmt.Errorf("failed to ping PostgreSQL: %w", err)
+		return nil, ctx, fmt.Errorf("failed to ping PostgreSQL: %w", err)
 	}
 
 	// Применяем миграции
 	if err = applyMigrations(pool, ctx); err != nil {
-		fmt.Errorf("failed to apply migrations: %w", err)
+		return nil, ctx, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
 	return pool, ctx, err
@@ -96,7 +96,7 @@ func NewPostgresRepository(databaseDSN string) (*pgxpool.Pool, context.Context, 
 		log.Println(err)
 	}
 	if err := applyMigrations(db, ctx); err != nil {
-		fmt.Errorf("failed to apply migrations: %w", err)
+		return nil, ctx, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 	return db, ctx, nil
 }

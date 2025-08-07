@@ -63,11 +63,15 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 
 	}
 	if !exists {
-		// Создаем таблицу миграций
+		// Создаем таблицу
+		fmt.Println("creating migrations table")
 		_, err = db.Exec(ctx, "CREATE TABLE migrations (	id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, applied_at TIMESTAMP NOT NULL DEFAULT NOW())")
 		if err != nil {
 			return fmt.Errorf("failed to create migrations table: %w", err)
 		}
+		fmt.Println("migrations table created")
+	} else {
+		fmt.Println("migrations table already exists")
 	}
 
 	// Применяем начальную миграцию
@@ -78,8 +82,14 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 	}
 
 	if !applied {
+
+		path := "migrations/000001_create_metrics_table.up.sql"
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return fmt.Errorf("файл миграции не найден: %s", path)
+		}
+
 		// Читаем SQL из файла миграции
-		migrationSQL, err := os.ReadFile("migrations/000001_create_metrics_table.up.sql")
+		migrationSQL, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read migration file: %w", err)
 		}
@@ -95,7 +105,7 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 			return fmt.Errorf("failed to execute migration: %w", err)
 		}
 
-		if _, err := tx.Exec(ctx, "INSERT INTO migrations (name) VALUES ('migrations/000001_create_metrics_table')"); err != nil {
+		if _, err := tx.Exec(ctx, "INSERT INTO migrations (name) VALUES ('migrations/000001_create_metrics_table.up.sql')"); err != nil {
 			return fmt.Errorf("failed to record migration: %w", err)
 		}
 
@@ -103,7 +113,7 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 			return fmt.Errorf("failed to commit migration: %w", err)
 		}
 	}
-
+	fmt.Errorf("migration commited")
 	return nil
 }
 func NewPostgresRepository(databaseDSN string) (*pgxpool.Pool, context.Context, error) {

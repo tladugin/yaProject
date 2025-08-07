@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log"
 	"os"
@@ -64,14 +65,14 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 	}
 	if !exists {
 		// Создаем таблицу
-		fmt.Println("creating migrations table")
+		log.Println("creating migrations table")
 		_, err = db.Exec(ctx, "CREATE TABLE migrations (	id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, applied_at TIMESTAMP NOT NULL DEFAULT NOW())")
 		if err != nil {
 			return fmt.Errorf("failed to create migrations table: %w", err)
 		}
-		fmt.Println("migrations table created")
+		log.Println("migrations table created")
 	} else {
-		fmt.Println("migrations table already exists")
+		log.Println("migrations table already exists")
 	}
 
 	// Применяем начальную миграцию
@@ -99,7 +100,12 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
-		defer tx.Rollback(ctx)
+		defer func(tx pgx.Tx, ctx context.Context) {
+			err := tx.Rollback(ctx)
+			if err != nil {
+				log.Printf("failed to rollback transaction: %s", err)
+			}
+		}(tx, ctx)
 
 		if _, err := tx.Exec(ctx, string(migrationSQL)); err != nil {
 			return fmt.Errorf("failed to execute migration: %w", err)
@@ -113,7 +119,7 @@ func applyMigrations(db *pgxpool.Pool, ctx context.Context) error {
 			return fmt.Errorf("failed to commit migration: %w", err)
 		}
 	}
-	fmt.Errorf("migration commited")
+	log.Println("migration commited")
 	return nil
 }
 func NewPostgresRepository(databaseDSN string) (*pgxpool.Pool, context.Context, error) {

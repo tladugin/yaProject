@@ -55,8 +55,9 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 			r.Post("/update/", db.PostUpdatePostgres)
 			r.Post("/value", db.PostValue)
 			r.Post("/value/", db.PostValue)
-			r.Post("/updates", db.UpdateMetricsBatchPostgres)
-			r.Post("/updates/", db.UpdateMetricsBatchPostgres)
+			r.Post("/updates", db.UpdatesGaugesBatchPostgres)
+			r.Post("/updates/", db.UpdatesGaugesBatchPostgres)
+
 		} else {
 			r.Get("/", s.MainPage)
 			r.Get("/value/{metric}/{name}", s.GetHandler)

@@ -124,10 +124,12 @@ func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request
 	}
 	defer req.Body.Close()
 
-	if metric.ID == "" {
+	/*if metric.ID == "" {
 		http.Error(res, "Metric ID is required", http.StatusBadRequest)
 		return
 	}
+
+	*/
 
 	switch metric.MType {
 	case "gauge":
@@ -236,18 +238,19 @@ func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 
 	json.NewEncoder(res).Encode(result)
 }
-func (s *ServerDB) UpdateMetricsBatchPostgres(res http.ResponseWriter, req *http.Request) {
+func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http.Request) {
 	ctx := context.Background()
-	// Проверяем, есть ли метрики для обновления
+	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
 
-	/*if len(metrics) == 0 {
-		return nil
-	}
+	var metrics []models.Metrics
 
-	*/
-	if len(s.storage.GaugeSlice()) == 0 && len(s.storage.CounterSlice()) == 0 {
-		http.Error(res, "Metrics storage is empty", http.StatusBadRequest)
+	if err := json.NewDecoder(req.Body).Decode(&metrics); err != nil {
+		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+		return
 	}
+	defer req.Body.Close()
 
 	// Начинаем транзакцию
 	tx, err := s.connectionPool.Begin(ctx)
@@ -265,7 +268,6 @@ func (s *ServerDB) UpdateMetricsBatchPostgres(res http.ResponseWriter, req *http
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
-
 	stmtCounter, err := tx.Prepare(ctx, "batch_update_counter",
 		`INSERT INTO counter_metrics (name, value) 
          VALUES ($1, $2)
@@ -273,25 +275,29 @@ func (s *ServerDB) UpdateMetricsBatchPostgres(res http.ResponseWriter, req *http
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
+
 	// Выполняем пакетное обновление
-	for name, value := range s.storage.GaugeSlice() {
-		_, err := tx.Exec(ctx, stmtGauge.SQL, name, value)
-		if err != nil {
-			http.Error(res, err.Error(), http.StatusInternalServerError)
+	for name, value := range metrics {
+		switch value.MType {
+		case "gauge":
+			_, err := tx.Exec(ctx, stmtGauge.SQL, name, value)
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusInternalServerError)
+			}
+		case "counter":
+			_, err := tx.Exec(ctx, stmtCounter.SQL, name, value)
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusInternalServerError)
+			}
 		}
+
 	}
-	for name, value := range s.storage.CounterSlice() {
-		_, err := tx.Exec(ctx, stmtCounter.SQL, name, value)
-		if err != nil {
-			http.Error(res, err.Error(), http.StatusInternalServerError)
-		}
-	}
+
 	// Фиксируем транзакцию
 	if err := tx.Commit(ctx); err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
 
-	return
 }
 
 // postgres handlers! ^----

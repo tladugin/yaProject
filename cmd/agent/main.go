@@ -122,13 +122,13 @@ func main() {
 				}
 
 				*/
-				err = models.SendMetricsBatch(serverURL+"/update", "gauge", storage, 28)
+				err = models.SendMetricsBatch(serverURL+"/updates", "gauge", storage, 28)
 				if err != nil {
 					sugar.Error(err)
 				}
 
 				storage.AddCounter("PollCount", pollCounter)
-				err = models.SendMetricsBatch(serverURL+"/update", "counter", storage, 1)
+				err = models.SendMetricsBatch(serverURL+"/updates", "counter", storage, 1)
 				if err != nil {
 					sugar.Error(err)
 				} else {

@@ -20,22 +20,27 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 	s := handler.NewServer(storage)
 	sSync := handler.NewServerSync(storage, producer)
 
+	var db *handler.ServerDB
+	var ping *handler.ServerPing
+
 	if *flagDatabaseDSN != "" {
 		//проверка миграций
-		pool, _, err := repository.NewPostgresRepository(*flagDatabaseDSN)
+		p, _, err := repository.NewPostgresRepository(*flagDatabaseDSN)
 		if err != nil {
 			sugar.Error("Failed to initialize storage: %v", err.Error())
 		}
+		defer p.Close()
+		//соединение с БД
+		pool, _, _, err := repository.GetConnection(*flagDatabaseDSN)
+		if err != nil {
+			sugar.Error("Failed to get connection!: %v", err.Error())
+		}
 		defer pool.Close()
+		ping = handler.NewServerPingDB(storage, flagDatabaseDSN)
+		db = handler.NewServerDB(storage, pool)
 
 	}
 
-	dbPool, _, _, err := repository.GetConnection(*flagDatabaseDSN)
-	if err != nil {
-		sugar.Error("Failed to get connection!: %v", err.Error())
-	}
-	ping := handler.NewServerPingDB(storage, flagDatabaseDSN)
-	db := handler.NewServerDB(storage, dbPool)
 	r := chi.NewRouter()
 	r.Use(repository.GzipMiddleware,
 		logger.LoggingAnswer(sugar),
@@ -43,7 +48,7 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 	)
 	r.Route("/", func(r chi.Router) {
 
-		if flagDatabaseDSN != nil {
+		if *flagDatabaseDSN != "" {
 
 			r.Get("/ping", ping.GetPing)
 			r.Post("/update", db.PostUpdatePostgres)

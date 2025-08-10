@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -10,6 +11,61 @@ import (
 	"time"
 )
 
+func UpdateGauge(pool *pgxpool.Pool, ctx context.Context, name string, value float64) error {
+	_, err := pool.Exec(ctx, `INSERT INTO gauges (name, value)	VALUES ($1, $2)	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`, name, value)
+	return err
+}
+
+func UpdateCounter(pool *pgxpool.Pool, ctx context.Context, name string, value int64) error {
+	_, err := pool.Exec(ctx, `INSERT INTO counters (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counters.value + EXCLUDED.value, updated_at = NOW()`, name, value)
+	return err
+}
+func GetGauge(pool *pgxpool.Pool, ctx context.Context, name string) (float64, error) {
+	// Проверка входных параметров
+	if pool == nil {
+		return 0, fmt.Errorf("database pool is nil")
+	}
+
+	if name == "" {
+		return 0, fmt.Errorf("metric name cannot be empty")
+	}
+
+	// Выполнение запроса
+	var value float64
+	err := pool.QueryRow(ctx, `SELECT value FROM gauges WHERE name = $1`, name).Scan(&value)
+
+	// Обработка ошибок
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return 0, fmt.Errorf("gauge '%s' not found", name)
+	case err != nil:
+		return 0, fmt.Errorf("failed to get gauge '%s': %w", name, err)
+	}
+
+	return value, nil
+}
+
+func GetCounter(pool *pgxpool.Pool, ctx context.Context, name string) (int64, error) {
+	if pool == nil {
+		return 0, fmt.Errorf("database pool is nil")
+	}
+
+	if name == "" {
+		return 0, fmt.Errorf("metric name cannot be empty")
+	}
+
+	var value int64
+	err := pool.QueryRow(ctx, `SELECT value FROM counters WHERE name = $1`, name).Scan(&value)
+
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return 0, fmt.Errorf("counter '%s' not found", name)
+	case err != nil:
+		return 0, fmt.Errorf("failed to get counter '%s': %w", name, err)
+	}
+
+	return value, nil
+}
 func GetConnection(databaseDSN string) (*pgxpool.Pool, context.Context, context.CancelFunc, error) {
 	// Создаем контекст с таймаутом для инициализации подключения
 	initCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -18,17 +18,24 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 	defer wg.Done()
 
 	s := handler.NewServer(storage)
+	sSync := handler.NewServerSync(storage, producer)
+
 	if *flagDatabaseDSN != "" {
-		repo, _, err := repository.NewPostgresRepository(*flagDatabaseDSN)
+		//проверка миграций
+		pool, _, err := repository.NewPostgresRepository(*flagDatabaseDSN)
 		if err != nil {
 			sugar.Error("Failed to initialize storage: %v", err.Error())
 		}
-		defer repo.Close()
+		defer pool.Close()
+
 	}
 
-	c := handler.NewServerDB(storage, flagDatabaseDSN)
-	sSync := handler.NewServerSync(storage, producer)
-
+	dbPool, _, _, err := repository.GetConnection(*flagDatabaseDSN)
+	if err != nil {
+		sugar.Error("Failed to get connection!: %v", err.Error())
+	}
+	ping := handler.NewServerPingDB(storage, flagDatabaseDSN)
+	db := handler.NewServerDB(storage, dbPool)
 	r := chi.NewRouter()
 	r.Use(repository.GzipMiddleware,
 		logger.LoggingAnswer(sugar),
@@ -36,23 +43,32 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 	)
 	r.Route("/", func(r chi.Router) {
 
-		r.Get("/", s.MainPage)
-		r.Get("/ping", c.GetPing)
-		r.Get("/value/{metric}/{name}", s.GetHandler)
-		r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
+		if flagDatabaseDSN != nil {
 
-		if flagStoreInterval == "0" {
-			sugar.Info("Running in sync backup mode")
-			r.Post("/update", sSync.PostUpdateSyncBackup)
-			r.Post("/update/", sSync.PostUpdateSyncBackup)
+			r.Get("/ping", ping.GetPing)
+			r.Post("/update", db.PostUpdatePostgres)
+			r.Post("/update/", db.PostUpdatePostgres)
+			r.Post("/value", db.PostValue)
+			r.Post("/value/", db.PostValue)
 		} else {
-			sugar.Info("Running in async backup mode")
-			r.Post("/update", s.PostUpdate)
-			r.Post("/update/", s.PostUpdate)
+			r.Get("/", s.MainPage)
+			r.Get("/value/{metric}/{name}", s.GetHandler)
+			r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
+
+			if flagStoreInterval == "0" {
+				sugar.Info("Running in sync backup mode")
+				r.Post("/update", sSync.PostUpdateSyncBackup)
+				r.Post("/update/", sSync.PostUpdateSyncBackup)
+			} else {
+				sugar.Info("Running in async backup mode")
+				r.Post("/update", s.PostUpdate)
+				r.Post("/update/", s.PostUpdate)
+			}
+
+			r.Post("/value", s.PostValue)
+			r.Post("/value/", s.PostValue)
 		}
 
-		r.Post("/value", s.PostValue)
-		r.Post("/value/", s.PostValue)
 	})
 
 	server := &http.Server{

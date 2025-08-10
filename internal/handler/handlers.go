@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"log"
@@ -34,17 +37,29 @@ type Server struct {
 	storage *repository.MemStorage
 }
 
-func NewServerDB(s *repository.MemStorage, c *string) *ServerDB {
+type ServerPing struct {
+	storage     *repository.MemStorage
+	databaseDSN *string
+}
+type ServerDB struct {
+	storage        *repository.MemStorage
+	connectionPool *pgxpool.Pool
+}
+
+func NewServerDB(s *repository.MemStorage, p *pgxpool.Pool) *ServerDB {
 	return &ServerDB{
-		storage:     s,
-		databaseDSN: c,
+		storage:        s,
+		connectionPool: p,
 	}
 
 }
 
-type ServerDB struct {
-	storage     *repository.MemStorage
-	databaseDSN *string
+func NewServerPingDB(s *repository.MemStorage, c *string) *ServerPing {
+	return &ServerPing{
+		storage:     s,
+		databaseDSN: c,
+	}
+
 }
 
 type ServerSync struct {
@@ -80,6 +95,149 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 	fmt.Fprint(res, "</ul></body></html>")
 }
 
+// postgres handlers! --->
+func (s *ServerDB) updateGaugePostgres(ctx context.Context, name string, value float64) error {
+
+	_, err := s.connectionPool.Exec(ctx,
+		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`, name, value)
+	if err != nil {
+		println("update gauges error: " + err.Error())
+	}
+	return err
+}
+func (s *ServerDB) updateCounterPostgres(ctx context.Context, name string, delta int64) error {
+	_, err := s.connectionPool.Exec(ctx,
+		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`, name, delta)
+	return err
+}
+
+func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request) {
+	ctx := context.Background()
+	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
+
+	var metric models.Metrics
+	if err := json.NewDecoder(req.Body).Decode(&metric); err != nil {
+		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+	defer req.Body.Close()
+
+	if metric.ID == "" {
+		http.Error(res, "Metric ID is required", http.StatusBadRequest)
+		return
+	}
+
+	switch metric.MType {
+	case "gauge":
+		if metric.Value == nil {
+			http.Error(res, "Gauge value is required", http.StatusBadRequest)
+			return
+		}
+
+		err := s.updateGaugePostgres(ctx, metric.ID, *metric.Value)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+	case "counter":
+		if metric.Delta == nil {
+			http.Error(res, "Counter delta is required", http.StatusBadRequest)
+			return
+		}
+
+		err := s.updateCounterPostgres(ctx, metric.ID, *metric.Delta)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+	default:
+		http.Error(res, "Invalid metric type", http.StatusBadRequest)
+		return
+	}
+
+	// Возвращаем обновленную метрику
+	json.NewEncoder(res).Encode(metric)
+}
+func (s *ServerDB) getGauge(ctx context.Context, name string) (models.Metrics, error) {
+	var value float64
+	err := s.connectionPool.QueryRow(ctx,
+		"SELECT value FROM gauge_metrics WHERE name = $1", name).Scan(&value)
+
+	if err != nil {
+		return models.Metrics{}, err
+	}
+
+	return models.Metrics{
+		ID:    name,
+		MType: "gauge",
+		Value: &value,
+	}, nil
+}
+
+func (s *ServerDB) getCounter(ctx context.Context, name string) (models.Metrics, error) {
+	var value int64
+	err := s.connectionPool.QueryRow(ctx,
+		"SELECT value FROM counter_metrics WHERE name = $1", name).Scan(&value)
+
+	if err != nil {
+		return models.Metrics{}, err
+	}
+
+	return models.Metrics{
+		ID:    name,
+		MType: "counter",
+		Delta: &value,
+	}, nil
+}
+
+func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
+	ctx := context.Background()
+	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
+
+	var metric models.Metrics
+	if err := json.NewDecoder(req.Body).Decode(&metric); err != nil {
+		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+	defer req.Body.Close()
+
+	if metric.ID == "" {
+		http.Error(res, "Metric ID is required", http.StatusBadRequest)
+		return
+	}
+
+	var result models.Metrics
+	var err error
+
+	switch metric.MType {
+	case "gauge":
+		result, err = s.getGauge(ctx, metric.ID)
+	case "counter":
+		result, err = s.getCounter(ctx, metric.ID)
+	default:
+		http.Error(res, "Invalid metric type", http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(res, "Metric not found", http.StatusNotFound)
+		} else {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	json.NewEncoder(res).Encode(result)
+}
+
+// postgres handlers! ^----
 func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Request) {
 	//metricCounter += 1
 
@@ -388,7 +546,7 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 
 	}
 }
-func (s *ServerDB) GetPing(res http.ResponseWriter, req *http.Request) {
+func (s *ServerPing) GetPing(res http.ResponseWriter, req *http.Request) {
 
 	pool, _, cancel, err := repository.GetConnection(*s.databaseDSN)
 

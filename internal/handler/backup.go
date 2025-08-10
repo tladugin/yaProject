@@ -2,8 +2,10 @@ package handler
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	models "github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"go.uber.org/zap"
@@ -38,6 +40,7 @@ func NewConsumer(filename string) (*Consumer, error) {
 func (c *Consumer) Close() error {
 	return c.file.Close()
 }
+
 func (c *Consumer) ReadEvent() (*models.Metrics, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -161,6 +164,26 @@ func RunPeriodicBackup(storage *repository.MemStorage, producer *Producer, inter
 	}
 }
 
+/*
+func RunPeriodicPostgresBackup(storage *repository.MemStorage, pool *pgxpool.Pool, interval time.Duration, stop <-chan struct{}, sugar *zap.SugaredLogger) {
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := performBackupToPostgres(storage, pool, sugar); err != nil {
+					sugar.Error("Periodic backup to postgres failed: ", err)
+				} else {
+					sugar.Info("Periodic backup to postgres complete")
+				}
+			case <-stop:
+				return
+			}
+		}
+	}
+*/
 func RunFinalBackup(storage *repository.MemStorage, producer *Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagFileStoragePath string, sugar *zap.SugaredLogger) {
 	defer wg.Done()
 	<-stop
@@ -228,6 +251,65 @@ func performBackup(storage *repository.MemStorage, producer *Producer, flagFileS
 
 	return nil
 }
+
+func performBackupToPostgres(storage *repository.MemStorage, dbPool *pgxpool.Pool, sugar *zap.SugaredLogger) error {
+	var mu sync.Mutex
+	ctx := context.Background()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Начинаем транзакцию
+	tx, err := dbPool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Очищаем существующие данные (опционально, можно пропустить если нужно накапливать)
+	if _, err := tx.Exec(ctx, "TRUNCATE TABLE gauges, counters"); err != nil {
+		return fmt.Errorf("failed to truncate tables: %w", err)
+	}
+
+	// Бэкап gauge метрик
+	for _, gauge := range storage.GaugeSlice() {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO gauges (name, value) 
+			VALUES ($1, $2)
+			ON CONFLICT (name) DO UPDATE 
+			SET value = EXCLUDED.value, updated_at = NOW()`,
+			gauge.Name,
+			gauge.Value,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to backup gauge %s: %w", gauge.Name, err)
+		}
+	}
+
+	// Бэкап counter метрик
+	for _, counter := range storage.CounterSlice() {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO counters (name, value) 
+			VALUES ($1, $2)
+			ON CONFLICT (name) DO UPDATE 
+			SET value = counters.value + EXCLUDED.value, updated_at = NOW()`,
+			counter.Name,
+			counter.Value,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to backup counter %s: %w", counter.Name, err)
+		}
+	}
+
+	// Фиксируем транзакцию
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	sugar.Info("Successfully backed up metrics to PostgreSQL")
+	return nil
+}
+
 func WaitForShutdown(stop chan<- struct{}, sugar zap.SugaredLogger) {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
@@ -237,22 +319,3 @@ func WaitForShutdown(stop chan<- struct{}, sugar zap.SugaredLogger) {
 	close(stop)
 
 }
-
-/*func ConnectDB(flagConnectString string) {
-
-	var ctx = context.Background()
-	db, err := pgx.Connect(ctx, flagConnectString)
-
-	if err != nil {
-		log.Println(err)
-	}
-	defer func(db *pgx.Conn, ctx context.Context) {
-		err = db.Close(ctx)
-		if err != nil {
-			log.Println(err)
-		}
-	}(db, ctx)
-
-}
-
-*/

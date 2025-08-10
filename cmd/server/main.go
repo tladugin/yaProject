@@ -60,10 +60,12 @@ func main() {
 	var wg sync.WaitGroup
 
 	// Запуск фоновых задач
+
 	if flagStoreInterval != "0" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
 			handler.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flagFileStoragePath, sugar)
 		}()
 	}

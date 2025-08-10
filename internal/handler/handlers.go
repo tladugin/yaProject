@@ -261,31 +261,27 @@ func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http
 
 	// Подготавливаем statement для пакетного обновления
 	stmtGauge, err := tx.Prepare(ctx, "batch_update_gauge",
-		`INSERT INTO gauge_metrics (name, value) 
-         VALUES ($1, $2)
-         ON CONFLICT (name) DO UPDATE 
-         SET value = EXCLUDED.value`)
+		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
+
 	stmtCounter, err := tx.Prepare(ctx, "batch_update_counter",
-		`INSERT INTO counter_metrics (name, value) 
-         VALUES ($1, $2)
-         ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`)
+		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
 
 	// Выполняем пакетное обновление
-	for name, value := range metrics {
+	for _, value := range metrics {
 		switch value.MType {
 		case "gauge":
-			_, err := tx.Exec(ctx, stmtGauge.SQL, name, value)
+			_, err := tx.Exec(ctx, stmtGauge.SQL, value.ID, value.Value)
 			if err != nil {
 				http.Error(res, err.Error(), http.StatusInternalServerError)
 			}
 		case "counter":
-			_, err := tx.Exec(ctx, stmtCounter.SQL, name, value)
+			_, err := tx.Exec(ctx, stmtCounter.SQL, value.ID, value.Delta)
 			if err != nil {
 				http.Error(res, err.Error(), http.StatusInternalServerError)
 			}

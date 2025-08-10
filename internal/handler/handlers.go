@@ -230,8 +230,6 @@ func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(res, "Metric not found", http.StatusNotFound)
-		} else {
-			http.Error(res, err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}

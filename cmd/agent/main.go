@@ -110,8 +110,9 @@ func main() {
 				sugar.Infoln("Sending metrics...")
 				//fmt.Println("Sending metrics...")
 
-				for i := range storage.GaugeSlice() {
+				/*for i := range storage.GaugeSlice() {
 					err = models.SendMetric(serverURL+"/update", "gauge", storage, i)
+
 					if err != nil {
 						sugar.Infoln(storage.GaugeSlice()[i])
 
@@ -119,16 +120,34 @@ func main() {
 					}
 
 				}
-				for i := range storage.CounterSlice() {
-					storage.AddCounter("PollCount", pollCounter)
-					err = models.SendMetric(serverURL+"/update", "counter", storage, i)
-					if err != nil {
-						sugar.Infoln(storage.CounterSlice()[i])
-						sugar.Infoln("Error sending metric:", err)
-					} else {
-						pollCounter = 0
-					}
+
+				*/
+				err = models.SendMetricsBatch(serverURL+"/update", "gauge", storage, 28)
+				if err != nil {
+					sugar.Error(err)
 				}
+
+				storage.AddCounter("PollCount", pollCounter)
+				err = models.SendMetricsBatch(serverURL+"/update", "counter", storage, 1)
+				if err != nil {
+					sugar.Error(err)
+				} else {
+					pollCounter = 0
+				}
+
+				/*
+					for i := range storage.CounterSlice() {
+						storage.AddCounter("PollCount", pollCounter)
+						err = models.SendMetric(serverURL+"/update", "counter", storage, i)
+						if err != nil {
+							sugar.Infoln(storage.CounterSlice()[i])
+							sugar.Infoln("Error sending metric:", err)
+						} else {
+							pollCounter = 0
+						}
+					}
+
+				*/
 			case <-stopReport:
 				return
 			}

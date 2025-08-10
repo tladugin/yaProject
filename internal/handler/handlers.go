@@ -236,6 +236,63 @@ func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 
 	json.NewEncoder(res).Encode(result)
 }
+func (s *ServerDB) UpdateMetricsBatchPostgres(res http.ResponseWriter, req *http.Request) {
+	ctx := context.Background()
+	// Проверяем, есть ли метрики для обновления
+
+	/*if len(metrics) == 0 {
+		return nil
+	}
+
+	*/
+	if len(s.storage.GaugeSlice()) == 0 && len(s.storage.CounterSlice()) == 0 {
+		http.Error(res, "Metrics storage is empty", http.StatusBadRequest)
+	}
+
+	// Начинаем транзакцию
+	tx, err := s.connectionPool.Begin(ctx)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+	}
+	defer tx.Rollback(ctx)
+
+	// Подготавливаем statement для пакетного обновления
+	stmtGauge, err := tx.Prepare(ctx, "batch_update_gauge",
+		`INSERT INTO gauge_metrics (name, value) 
+         VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE 
+         SET value = EXCLUDED.value`)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+	}
+
+	stmtCounter, err := tx.Prepare(ctx, "batch_update_counter",
+		`INSERT INTO counter_metrics (name, value) 
+         VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+	}
+	// Выполняем пакетное обновление
+	for name, value := range s.storage.GaugeSlice() {
+		_, err := tx.Exec(ctx, stmtGauge.SQL, name, value)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
+	}
+	for name, value := range s.storage.CounterSlice() {
+		_, err := tx.Exec(ctx, stmtCounter.SQL, name, value)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
+	}
+	// Фиксируем транзакцию
+	if err := tx.Commit(ctx); err != nil {
+		http.Error(res, err.Error(), http.StatusInternalServerError)
+	}
+
+	return
+}
 
 // postgres handlers! ^----
 func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Request) {

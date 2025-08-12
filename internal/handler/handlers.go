@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,14 +102,18 @@ func (s *ServerDB) updateGaugePostgres(ctx context.Context, name string, value f
 	_, err := s.connectionPool.Exec(ctx,
 		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`, name, value)
 	if err != nil {
-		println("update gauges error: " + err.Error())
+		return fmt.Errorf("Error updating gauge_metrics: %v", err)
+		//println("update gauges error: " + err.Error())
 	}
-	return err
+	return nil
 }
 func (s *ServerDB) updateCounterPostgres(ctx context.Context, name string, delta int64) error {
 	_, err := s.connectionPool.Exec(ctx,
 		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`, name, delta)
-	return err
+	if err != nil {
+		return fmt.Errorf("Error updating counter_metrics: %v", err)
+	}
+	return nil
 }
 
 func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request) {
@@ -170,7 +175,7 @@ func (s *ServerDB) getGauge(ctx context.Context, name string) (models.Metrics, e
 		"SELECT value FROM gauge_metrics WHERE name = $1", name).Scan(&value)
 
 	if err != nil {
-		return models.Metrics{}, err
+		return models.Metrics{}, fmt.Errorf("error querying gauge_metrics: %v", err)
 	}
 
 	return models.Metrics{
@@ -186,7 +191,7 @@ func (s *ServerDB) getCounter(ctx context.Context, name string) (models.Metrics,
 		"SELECT value FROM counter_metrics WHERE name = $1", name).Scan(&value)
 
 	if err != nil {
-		return models.Metrics{}, err
+		return models.Metrics{}, fmt.Errorf("error querying counter_metrics: %v", err)
 	}
 
 	return models.Metrics{
@@ -228,7 +233,7 @@ func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 	}
 
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(res, "Metric not found", http.StatusNotFound)
 		} else {
 			http.Error(res, err.Error(), http.StatusNotFound)
@@ -343,9 +348,6 @@ func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Req
 		//fmt.Println(encodedMetrics.ID, encodedMetrics.MType, encodedMetrics.Value)
 
 		err = encoder.Encode(encodedMetrics)
-		if err != nil {
-			return
-		}
 
 	case "counter":
 		if decodedMetrics.Delta == nil {
@@ -365,9 +367,6 @@ func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Req
 		}
 
 		err = encoder.Encode(encodedMetrics)
-		if err != nil {
-			return
-		}
 
 	default:
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
@@ -431,10 +430,7 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 		encodedMetrics.MType = "counter"
 		encodedMetrics.Delta = decodedMetrics.Delta
 
-		err := encoder.Encode(encodedMetrics)
-		if err != nil {
-			return
-		}
+		encoder.Encode(encodedMetrics)
 
 	default:
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)

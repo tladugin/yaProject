@@ -102,7 +102,7 @@ func (s *ServerDB) updateGaugePostgres(ctx context.Context, name string, value f
 	_, err := s.connectionPool.Exec(ctx,
 		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`, name, value)
 	if err != nil {
-		return fmt.Errorf("Error updating gauge_metrics: %v", err)
+		return fmt.Errorf("error updating gauge_metrics: %v", err)
 		//println("update gauges error: " + err.Error())
 	}
 	return nil
@@ -111,7 +111,7 @@ func (s *ServerDB) updateCounterPostgres(ctx context.Context, name string, delta
 	_, err := s.connectionPool.Exec(ctx,
 		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`, name, delta)
 	if err != nil {
-		return fmt.Errorf("Error updating counter_metrics: %v", err)
+		return fmt.Errorf("error updating counter_metrics: %v", err)
 	}
 	return nil
 }

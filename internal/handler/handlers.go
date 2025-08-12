@@ -4,11 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
@@ -100,40 +97,25 @@ func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
 
 // postgres handlers! --->
 func (s *ServerDB) updateGaugePostgres(ctx context.Context, name string, value float64) error {
-	if s.connectionPool == nil {
-		return fmt.Errorf("database connection pool is not initialized")
-	}
 
 	_, err := s.connectionPool.Exec(ctx,
-		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) 
-         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`,
-		name, value)
-
+		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`, name, value)
 	if err != nil {
-		return fmt.Errorf("failed to update gauge metric: %w", err)
+		println("update gauges error: " + err.Error())
 	}
-	return nil
+	return err
 }
-
 func (s *ServerDB) updateCounterPostgres(ctx context.Context, name string, delta int64) error {
-	if s.connectionPool == nil {
-		return fmt.Errorf("database connection pool is not initialized")
-	}
-
 	_, err := s.connectionPool.Exec(ctx,
-		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) 
-         ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`,
-		name, delta)
-
-	if err != nil {
-		return fmt.Errorf("failed to update counter metric: %w", err)
-	}
-	return nil
+		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`, name, delta)
+	return err
 }
 
 func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
+	ctx := context.Background()
 	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
 
 	var metric models.Metrics
 	if err := json.NewDecoder(req.Body).Decode(&metric); err != nil {
@@ -142,6 +124,13 @@ func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request
 	}
 	defer req.Body.Close()
 
+	/*if metric.ID == "" {
+		http.Error(res, "Metric ID is required", http.StatusBadRequest)
+		return
+	}
+
+	*/
+
 	switch metric.MType {
 	case "gauge":
 		if metric.Value == nil {
@@ -149,8 +138,9 @@ func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request
 			return
 		}
 
-		if err := s.updateGaugePostgres(ctx, metric.ID, *metric.Value); err != nil {
-			handleDatabaseError(res, err)
+		err := s.updateGaugePostgres(ctx, metric.ID, *metric.Value)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -160,8 +150,9 @@ func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request
 			return
 		}
 
-		if err := s.updateCounterPostgres(ctx, metric.ID, *metric.Delta); err != nil {
-			handleDatabaseError(res, err)
+		err := s.updateCounterPostgres(ctx, metric.ID, *metric.Delta)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -170,22 +161,16 @@ func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request
 		return
 	}
 
-	if err := json.NewEncoder(res).Encode(metric); err != nil {
-		http.Error(res, "Failed to encode response", http.StatusInternalServerError)
-	}
+	// Возвращаем обновленную метрику
+	json.NewEncoder(res).Encode(metric)
 }
-
 func (s *ServerDB) getGauge(ctx context.Context, name string) (models.Metrics, error) {
-	if s.connectionPool == nil {
-		return models.Metrics{}, fmt.Errorf("database connection pool is not initialized")
-	}
-
 	var value float64
 	err := s.connectionPool.QueryRow(ctx,
 		"SELECT value FROM gauge_metrics WHERE name = $1", name).Scan(&value)
 
 	if err != nil {
-		return models.Metrics{}, fmt.Errorf("failed to get gauge metric: %w", err)
+		return models.Metrics{}, err
 	}
 
 	return models.Metrics{
@@ -196,16 +181,12 @@ func (s *ServerDB) getGauge(ctx context.Context, name string) (models.Metrics, e
 }
 
 func (s *ServerDB) getCounter(ctx context.Context, name string) (models.Metrics, error) {
-	if s.connectionPool == nil {
-		return models.Metrics{}, fmt.Errorf("database connection pool is not initialized")
-	}
-
 	var value int64
 	err := s.connectionPool.QueryRow(ctx,
 		"SELECT value FROM counter_metrics WHERE name = $1", name).Scan(&value)
 
 	if err != nil {
-		return models.Metrics{}, fmt.Errorf("failed to get counter metric: %w", err)
+		return models.Metrics{}, err
 	}
 
 	return models.Metrics{
@@ -216,8 +197,10 @@ func (s *ServerDB) getCounter(ctx context.Context, name string) (models.Metrics,
 }
 
 func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
+	ctx := context.Background()
 	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
 
 	var metric models.Metrics
 	if err := json.NewDecoder(req.Body).Decode(&metric); err != nil {
@@ -245,115 +228,72 @@ func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 	}
 
 	if err != nil {
-		handleDatabaseError(res, err)
+		if err == sql.ErrNoRows {
+			http.Error(res, "Metric not found", http.StatusNotFound)
+		} else {
+			http.Error(res, err.Error(), http.StatusNotFound)
+		}
 		return
 	}
 
-	if err := json.NewEncoder(res).Encode(result); err != nil {
-		http.Error(res, "Failed to encode response", http.StatusInternalServerError)
-	}
+	json.NewEncoder(res).Encode(result)
 }
-
 func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http.Request) {
-	ctx := req.Context()
+	ctx := context.Background()
 	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
 
 	var metrics []models.Metrics
+
 	if err := json.NewDecoder(req.Body).Decode(&metrics); err != nil {
 		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
 	defer req.Body.Close()
 
-	if s.connectionPool == nil {
-		http.Error(res, "Database connection pool is not initialized", http.StatusInternalServerError)
-		return
-	}
-
+	// Начинаем транзакцию
 	tx, err := s.connectionPool.Begin(ctx)
 	if err != nil {
-		handleDatabaseError(res, fmt.Errorf("failed to begin transaction: %w", err))
-		return
+		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
-	defer func() {
-		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
-			log.Printf("Failed to rollback transaction: %v", err)
-		}
-	}()
+	defer tx.Rollback(ctx)
 
+	// Подготавливаем statement для пакетного обновления
 	stmtGauge, err := tx.Prepare(ctx, "batch_update_gauge",
-		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) 
-         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`)
+		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`)
 	if err != nil {
-		handleDatabaseError(res, fmt.Errorf("failed to prepare gauge statement: %w", err))
-		return
+		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
 
 	stmtCounter, err := tx.Prepare(ctx, "batch_update_counter",
-		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) 
-         ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`)
+		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`)
 	if err != nil {
-		handleDatabaseError(res, fmt.Errorf("failed to prepare counter statement: %w", err))
-		return
+		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
 
-	for _, metric := range metrics {
-		switch metric.MType {
+	// Выполняем пакетное обновление
+	for _, value := range metrics {
+		switch value.MType {
 		case "gauge":
-			if metric.Value == nil {
-				http.Error(res, "Gauge value is required", http.StatusBadRequest)
-				return
-			}
-			if _, err := tx.Exec(ctx, stmtGauge.SQL, metric.ID, *metric.Value); err != nil {
-				handleDatabaseError(res, fmt.Errorf("failed to update gauge metric %s: %w", metric.ID, err))
-				return
+			_, err := tx.Exec(ctx, stmtGauge.SQL, value.ID, value.Value)
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusInternalServerError)
 			}
 		case "counter":
-			if metric.Delta == nil {
-				http.Error(res, "Counter delta is required", http.StatusBadRequest)
-				return
+			_, err := tx.Exec(ctx, stmtCounter.SQL, value.ID, value.Delta)
+			if err != nil {
+				http.Error(res, err.Error(), http.StatusInternalServerError)
 			}
-			if _, err := tx.Exec(ctx, stmtCounter.SQL, metric.ID, *metric.Delta); err != nil {
-				handleDatabaseError(res, fmt.Errorf("failed to update counter metric %s: %w", metric.ID, err))
-				return
-			}
-		default:
-			http.Error(res, "Invalid metric type", http.StatusBadRequest)
-			return
 		}
+
 	}
 
+	// Фиксируем транзакцию
 	if err := tx.Commit(ctx); err != nil {
-		handleDatabaseError(res, fmt.Errorf("failed to commit transaction: %w", err))
-		return
+		http.Error(res, err.Error(), http.StatusInternalServerError)
 	}
 
-	if err := json.NewEncoder(res).Encode(metrics); err != nil {
-		http.Error(res, "Failed to encode response", http.StatusInternalServerError)
-	}
-}
-
-// handleDatabaseError обрабатывает ошибки базы данных и возвращает соответствующий HTTP-статус
-func handleDatabaseError(res http.ResponseWriter, err error) {
-	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, pgx.ErrNoRows) {
-		http.Error(res, "Metric not found", http.StatusNotFound)
-	} else if pgErr := new(pgconn.PgError); errors.As(err, &pgErr) {
-		log.Printf("PostgreSQL error: %s (Code: %s)", pgErr.Message, pgErr.Code)
-
-		switch pgErr.Code {
-		case "08000", "08003", "08006", "08001", "08004": // Connection errors
-			http.Error(res, "Database connection error", http.StatusServiceUnavailable)
-		case "23505": // Unique violation
-			http.Error(res, "Conflict: duplicate key", http.StatusConflict)
-		case "23503": // Foreign key violation
-			http.Error(res, "Invalid reference", http.StatusBadRequest)
-		default:
-			http.Error(res, "Database error", http.StatusInternalServerError)
-		}
-	} else {
-		log.Printf("Database error: %v", err)
-		http.Error(res, "Internal server error", http.StatusInternalServerError)
-	}
 }
 
 // postgres handlers! ^----

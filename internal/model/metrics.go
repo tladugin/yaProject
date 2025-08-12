@@ -197,11 +197,7 @@ func isRetriableError(err error) bool {
 	// - таймаут
 	// - 5xx ошибка сервера
 	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-
-	return false
+	return errors.As(err, &netErr)
 }
 
 func SendWithRetry(url, metricType string, storage *repository.MemStorage, i int) error {

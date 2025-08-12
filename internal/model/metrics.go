@@ -2,10 +2,12 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -187,4 +189,42 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func isRetriableError(err error) bool {
+	// Считаем ошибку временной, если это:
+	// - ошибка сети/соединения
+	// - таймаут
+	// - 5xx ошибка сервера
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	return false
+}
+
+func SendWithRetry(url, metricType string, storage *repository.MemStorage, i int) error {
+	maxRetries := 3
+	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(retryDelays[attempt-1])
+		}
+
+		err := SendMetric(url, metricType, storage, i)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		if !isRetriableError(err) {
+			break
+		}
+	}
+
+	return fmt.Errorf("after %d attempts: %w", maxRetries, lastErr)
 }

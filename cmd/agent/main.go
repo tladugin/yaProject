@@ -110,8 +110,9 @@ func main() {
 				sugar.Infoln("Sending metrics...")
 				//fmt.Println("Sending metrics...")
 
+				// Отправка gauge метрик
 				for i := range storage.GaugeSlice() {
-					err = models.SendMetric(serverURL+"/update", "gauge", storage, i)
+					err = models.SendWithRetry(serverURL+"/update", "gauge", storage, i)
 
 					if err != nil {
 						sugar.Infoln(storage.GaugeSlice()[i])
@@ -120,13 +121,14 @@ func main() {
 					}
 
 				}
-
+				// Отправка counter метрик
 				for i := range storage.CounterSlice() {
 					storage.AddCounter("PollCount", pollCounter)
-					err = models.SendMetric(serverURL+"/update", "counter", storage, i)
+					err = models.SendWithRetry(serverURL+"/update", "counter", storage, i)
 					if err != nil {
-						sugar.Infoln(storage.CounterSlice()[i])
-						sugar.Infoln("Error sending metric:", err)
+						sugar.Infow("Failed to send counter metric after retries",
+							"metric", storage.CounterSlice()[i],
+							"error", err)
 					} else {
 						pollCounter = 0
 					}

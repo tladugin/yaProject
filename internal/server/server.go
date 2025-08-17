@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string) {
+func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string, flagKey *string) {
 	defer wg.Done()
 
 	s := handler.NewServer(storage)
@@ -33,7 +33,7 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 		}
 		defer pool.Close()
 		ping = handler.NewServerPingDB(storage, flagDatabaseDSN)
-		db = handler.NewServerDB(storage, pool)
+		db = handler.NewServerDB(storage, pool, flagKey)
 
 	}
 

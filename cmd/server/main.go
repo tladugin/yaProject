@@ -70,7 +70,7 @@ func main() {
 	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, flagFileStoragePath)
 
 	wg.Add(1)
-	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, &flagRunAddr, &flagDatabaseDSN)
+	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, &flagRunAddr, &flagDatabaseDSN, &flagKey)
 
 	// Ожидание сигнала завершения
 	repository.WaitForShutdown(stopProgram)

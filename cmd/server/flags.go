@@ -13,6 +13,7 @@ var (
 	flagFileStoragePath string
 	flagRestore         bool
 	flagDatabaseDSN     string
+	flagKey             string
 )
 
 // "host=localhost user=postgres password=543218 dbname=metrics sslmode=disable"
@@ -27,8 +28,8 @@ func parseFlags() {
 	flag.StringVar(&flagStoreInterval, "i", "300", "saving server data interval")
 	flag.StringVar(&flagFileStoragePath, "f", "server_backup", "path for server backup file")
 	flag.BoolVar(&flagRestore, "r", false, "restore server data")
-
 	flag.StringVar(&flagDatabaseDSN, "d", defaultDSN, "database DSN")
+	flag.StringVar(&flagKey, "k", "", "key")
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
 
@@ -41,11 +42,14 @@ func parseFlags() {
 	if envFileStoragePath := os.Getenv("FILE_STORAGE_PATH"); envFileStoragePath != "" {
 		flagFileStoragePath = envFileStoragePath
 	}
-	if flagRestoreKey := os.Getenv("RESTORE"); flagRestoreKey != "" {
+	if envRestoreKey := os.Getenv("RESTORE"); envRestoreKey != "" {
 		flagRestore = true
 	}
 	if envConnectString := os.Getenv("DATABASE_DSN"); envConnectString != "" {
 		flagDatabaseDSN = envConnectString
+	}
+	if envKey := os.Getenv("KEY"); envKey != "" {
+		flagKey = envKey
 	}
 
 }

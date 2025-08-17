@@ -2,7 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,12 +48,14 @@ type ServerPing struct {
 type ServerDB struct {
 	storage        *repository.MemStorage
 	connectionPool *pgxpool.Pool
+	flagKey        *string
 }
 
-func NewServerDB(s *repository.MemStorage, p *pgxpool.Pool) *ServerDB {
+func NewServerDB(s *repository.MemStorage, p *pgxpool.Pool, k *string) *ServerDB {
 	return &ServerDB{
 		storage:        s,
 		connectionPool: p,
+		flagKey:        k,
 	}
 
 }
@@ -250,6 +254,29 @@ func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http
 	res.Header().Set("Content-Encoding", "gzip")
 	res.Header().Set("Accept-Encoding", "gzip")
 
+	//if *s.flagKey != "" {
+	if req.Header.Get("HashSHA256") != "" {
+		bytesBuf, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
+		bytesKey := []byte(*s.flagKey)
+		if bytesKey != nil {
+			hash := sha256.Sum256(append(bytesKey, bytesBuf...))
+			hashHeaderServer := hex.EncodeToString(hash[:])
+			if hashHeaderServer != req.Header.Get("HashSHA256") {
+
+				res.Header().Set("HashSHA256", hashHeaderServer)
+				http.Error(res, "Invalid hash header", http.StatusBadRequest)
+				return
+
+			} else {
+				res.Header().Set("HashSHA256", hashHeaderServer)
+			}
+			//req.Header.Set("HashSHA256", hashHeader)
+		}
+
+	}
 	var metrics []models.Metrics
 
 	if err := json.NewDecoder(req.Body).Decode(&metrics); err != nil {

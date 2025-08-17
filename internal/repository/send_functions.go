@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +15,7 @@ import (
 	"time"
 )
 
-func SendMetric(URL string, metricType string, storage *MemStorage, i int) error {
+func SendMetric(URL string, metricType string, storage *MemStorage, i int, key string) error {
 	// 1. Подготовка метрики
 	var metric models.Metrics
 
@@ -60,6 +62,15 @@ func SendMetric(URL string, metricType string, storage *MemStorage, i int) error
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
+
+	// 5.1 Проверяем наличие ключа, если он есть, отправляем в заголовке хеш
+	if key != "" {
+		bytesBuf := buf.Bytes()
+		bytesKey := []byte(key)
+		hash := sha256.Sum256(append(bytesKey, bytesBuf...))
+		hashHeader := hex.EncodeToString(hash[:])
+		req.Header.Set("HashSHA256", hashHeader)
+	}
 
 	// 6. Отправка запроса
 	client := &http.Client{}
@@ -182,7 +193,7 @@ func isRetriableError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
-func SendWithRetry(url, metricType string, storage *MemStorage, i int) error {
+func SendWithRetry(url, metricType string, storage *MemStorage, i int, key string) error {
 	maxRetries := 3
 	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
@@ -192,7 +203,7 @@ func SendWithRetry(url, metricType string, storage *MemStorage, i int) error {
 			time.Sleep(retryDelays[attempt-1])
 		}
 
-		err := SendMetric(url, metricType, storage, i)
+		err := SendMetric(url, metricType, storage, i, key)
 		if err == nil {
 			return nil
 		}

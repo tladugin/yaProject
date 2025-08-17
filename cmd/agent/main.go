@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
-
 	"log"
 	"math/rand"
 	"os"
@@ -31,18 +30,15 @@ func main() {
 	}()
 	var m runtime.MemStats
 
-	flags := parseFlags()
-	flagRunAddr := flags[0]
-	reportIntervalTime := flags[1]
-	pollIntervalTime := flags[2]
+	parseFlags()
 
 	serverURL := flagRunAddr
-	pollDuration, err := time.ParseDuration(pollIntervalTime + "s")
+	pollDuration, err := time.ParseDuration(flagPollIntervalTime + "s")
 	if err != nil {
 		sugar.Fatal("Invalid poll interval:", err)
 	}
 
-	reportDuration, err := time.ParseDuration(reportIntervalTime + "s")
+	reportDuration, err := time.ParseDuration(flagReportIntervalTime + "s")
 	if err != nil {
 		sugar.Fatal("Invalid report interval:", err)
 	}
@@ -108,9 +104,11 @@ func main() {
 				sugar.Infoln("Sending metrics...")
 				//fmt.Println("Sending metrics...")
 
+				//Проверяем наличие секретного ключа
+
 				// Отправка gauge метрик
 				for i := range storage.GaugeSlice() {
-					err = repository.SendWithRetry(serverURL+"/update", "gauge", storage, i)
+					err = repository.SendWithRetry(serverURL+"/update", "gauge", storage, i, flagKey)
 
 					if err != nil {
 						sugar.Infoln(storage.GaugeSlice()[i])
@@ -122,7 +120,7 @@ func main() {
 				// Отправка counter метрик
 				for i := range storage.CounterSlice() {
 					storage.AddCounter("PollCount", pollCounter)
-					err = repository.SendWithRetry(serverURL+"/update", "counter", storage, i)
+					err = repository.SendWithRetry(serverURL+"/update", "counter", storage, i, flagKey)
 					if err != nil {
 						sugar.Infow("Failed to send counter metric after retries",
 							"metric", storage.CounterSlice()[i],

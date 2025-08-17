@@ -335,6 +335,66 @@ func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http
 
 	res.WriteHeader(http.StatusOK)
 }
+func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) {
+
+	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
+
+	// Читаем тело запроса один раз
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(res, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer req.Body.Close()
+
+	// Проверка хеша (если ключ установлен)
+	/*if req.Header.Get("HashSHA256") != "" && s.flagKey != nil && *s.flagKey != "" {
+		bytesKey := []byte(*s.flagKey)
+		hash := sha256.Sum256(append(bytesKey, bodyBytes...))
+		hashHeaderServer := hex.EncodeToString(hash[:])
+
+		if hashHeaderServer != req.Header.Get("HashSHA256") {
+			res.Header().Set("HashSHA256", hashHeaderServer)
+			http.Error(res, "Invalid hash header", http.StatusBadRequest)
+			return
+		}
+		res.Header().Set("HashSHA256", hashHeaderServer)
+	}
+
+
+	*/
+	// Декодируем JSON из сохранённых байтов
+	var metrics []models.Metrics
+	if err := json.Unmarshal(bodyBytes, &metrics); err != nil {
+		logger.Sugar.Info("could not decode metrics json")
+		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	// Выполняем пакетное обновление
+	for _, value := range metrics {
+		var err error
+		switch value.MType {
+		case "gauge":
+
+			s.storage.AddGauge(value.ID, *value.Value)
+		case "counter":
+			s.storage.AddCounter(value.ID, *value.Delta)
+		default:
+			http.Error(res, "Unknown metric type", http.StatusBadRequest)
+			return
+		}
+
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	res.WriteHeader(http.StatusOK)
+}
 
 // postgres handlers! ^----
 func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Request) {

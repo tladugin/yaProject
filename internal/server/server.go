@@ -58,7 +58,8 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 			r.Get("/", s.MainPage)
 			r.Get("/value/{metric}/{name}", s.GetHandler)
 			r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
-
+			r.Post("/updates", s.UpdatesGaugesBatch)
+			r.Post("/updates/", s.UpdatesGaugesBatch)
 			if flagStoreInterval == "0" {
 				logger.Sugar.Info("Running in sync backup mode")
 				r.Post("/update", sSync.PostUpdateSyncBackup)

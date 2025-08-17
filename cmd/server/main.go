@@ -5,31 +5,29 @@ import (
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"github.com/tladugin/yaProject.git/internal/server"
 
-	"go.uber.org/zap"
-
 	"log"
 	"sync"
 	"time"
 )
 
 // logger
-var Sugar *zap.SugaredLogger
+
 var err error
 
 func main() {
 	parseFlags()
 
 	// Инициализация логгера
-	Sugar, err = logger.InitLogger()
+	logger.Sugar, err = logger.InitLogger()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() {
-		_ = Sugar.Sync() // Безопасное закрытие логгера
+		_ = logger.Sugar.Sync() // Безопасное закрытие логгера
 	}()
 
 	// Убедимся, что sugar не nil
-	if Sugar == nil {
+	if logger.Sugar == nil {
 		log.Fatal("Logger initialization failed")
 	}
 
@@ -43,14 +41,14 @@ func main() {
 	// Инициализация продюсера
 	producer, err := repository.NewProducer(flagFileStoragePath)
 	if err != nil {
-		Sugar.Fatal("Could not open backup file: ", err)
+		logger.Sugar.Fatal("Could not open backup file: ", err)
 	}
 	//defer safeCloseProducer(producer)
 
 	// Парсинг интервала сохранения
 	storeInterval, err := time.ParseDuration(flagStoreInterval + "s")
 	if err != nil {
-		Sugar.Fatal("Invalid store interval: ", err)
+		logger.Sugar.Fatal("Invalid store interval: ", err)
 	}
 
 	// Канал для graceful shutdown
@@ -77,5 +75,5 @@ func main() {
 	// Ожидание сигнала завершения
 	repository.WaitForShutdown(stopProgram)
 	wg.Wait()
-	Sugar.Info("Application shutdown complete")
+	logger.Sugar.Info("Application shutdown complete")
 }

@@ -104,47 +104,45 @@ func main() {
 				sugar.Infoln("Sending metrics...")
 				//fmt.Println("Sending metrics...")
 
-				//Проверяем наличие секретного ключа
-
-				// Отправка gauge метрик
-				for i := range storage.GaugeSlice() {
-					err = repository.SendWithRetry(serverURL+"/update", "gauge", storage, i, flagKey)
-
-					if err != nil {
-						sugar.Infoln(storage.GaugeSlice()[i])
-
-						sugar.Infoln("Error sending metric:", err)
-					}
-
-				}
-				// Отправка counter метрик
-				for i := range storage.CounterSlice() {
-					storage.AddCounter("PollCount", pollCounter)
-					err = repository.SendWithRetry(serverURL+"/update", "counter", storage, i, flagKey)
-					if err != nil {
-						sugar.Infow("Failed to send counter metric after retries",
-							"metric", storage.CounterSlice()[i],
-							"error", err)
-					} else {
-						pollCounter = 0
-					}
-				}
-
 				/*
-					err = models.SendMetricsBatch(serverURL+"/updates", "gauge", storage, 28)
-					if err != nil {
-						sugar.Error(err)
-					}
+					// Отправка gauge метрик
+					for i := range storage.GaugeSlice() {
+						err = repository.SendWithRetry(serverURL+"/update", "gauge", storage, i, flagKey)
 
-					storage.AddCounter("PollCount", pollCounter)
-					err = models.SendMetricsBatch(serverURL+"/updates", "counter", storage, 1)
-					if err != nil {
-						sugar.Error(err)
-					} else {
-						pollCounter = 0
-					}
+						if err != nil {
+							sugar.Infoln(storage.GaugeSlice()[i])
 
+							sugar.Infoln("Error sending metric:", err)
+						}
+
+					}
+					// Отправка counter метрик
+					for i := range storage.CounterSlice() {
+						storage.AddCounter("PollCount", pollCounter)
+						err = repository.SendWithRetry(serverURL+"/update", "counter", storage, i, flagKey)
+						if err != nil {
+							sugar.Infow("Failed to send counter metric after retries",
+								"metric", storage.CounterSlice()[i],
+								"error", err)
+						} else {
+							pollCounter = 0
+						}
+					}
 				*/
+
+				err = repository.SendMetricsBatch(serverURL+"/updates", "gauge", storage, 28, flagKey)
+				if err != nil {
+					sugar.Error(err)
+				}
+
+				storage.AddCounter("PollCount", pollCounter)
+				err = repository.SendMetricsBatch(serverURL+"/updates", "counter", storage, 1, flagKey)
+				if err != nil {
+					sugar.Error(err)
+				} else {
+					pollCounter = 0
+				}
+
 			case <-stopReport:
 				return
 			}

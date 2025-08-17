@@ -375,7 +375,7 @@ func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) 
 
 	// Выполняем пакетное обновление
 	for _, value := range metrics {
-		var err error
+
 		switch value.MType {
 		case "gauge":
 
@@ -387,10 +387,6 @@ func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) 
 			return
 		}
 
-		if err != nil {
-			http.Error(res, err.Error(), http.StatusInternalServerError)
-			return
-		}
 	}
 
 	res.WriteHeader(http.StatusOK)

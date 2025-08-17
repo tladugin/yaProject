@@ -1,6 +1,10 @@
 package main
 
 import (
+	"fmt"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/tladugin/yaProject.git/internal/agent"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"log"
@@ -10,10 +14,6 @@ import (
 	"runtime"
 	"syscall"
 	"time"
-)
-
-const (
-	contentType = "Content-Type: application/json"
 )
 
 func main() {
@@ -31,6 +31,8 @@ func main() {
 	var m runtime.MemStats
 
 	parseFlags()
+	workerPool := agent.NewWorkerPool(flagRateLimit)
+	defer workerPool.Shutdown()
 
 	serverURL := flagRunAddr
 	pollDuration, err := time.ParseDuration(flagPollIntervalTime + "s")
@@ -48,10 +50,13 @@ func main() {
 	storage := repository.NewMemStorage()
 	var pollCounter int64 = 0
 	storage.AddCounter("PollCount", 0)
-	go func() {
 
-		pollTicker := time.NewTicker(pollDuration)
-		defer pollTicker.Stop()
+	pollTicker := time.NewTicker(pollDuration)
+	defer pollTicker.Stop()
+
+	reportTicker := time.NewTicker(reportDuration)
+	defer reportTicker.Stop()
+	go func() {
 
 		for {
 			select {
@@ -87,6 +92,7 @@ func main() {
 				storage.AddGauge("Sys", float64(m.Sys))
 				storage.AddGauge("TotalAlloc", float64(m.TotalAlloc))
 				storage.AddGauge("RandomValue", rand.Float64())
+
 				pollCounter++
 
 			case <-stopPoll:
@@ -95,8 +101,25 @@ func main() {
 		}
 	}()
 	go func() {
-		reportTicker := time.NewTicker(reportDuration)
-		defer reportTicker.Stop()
+		for {
+			select {
+			case <-pollTicker.C:
+				if v, err := mem.VirtualMemory(); err == nil {
+					storage.AddGauge("TotalMemory", float64(v.Total))
+					storage.AddGauge("FreeMemory", float64(v.Free))
+				}
+				if percents, err := cpu.Percent(0, true); err == nil {
+					for i, percent := range percents {
+						storage.AddGauge(fmt.Sprintf("CPUutilization%d", i+1), percent)
+					}
+				}
+			case <-stopPoll:
+				return
+			}
+		}
+	}()
+
+	go func() {
 
 		for {
 			select {
@@ -129,19 +152,21 @@ func main() {
 						}
 					}
 				*/
-
-				err = repository.SendWithRetry(serverURL+"/updates", "gauge", storage, 28, flagKey)
-				if err != nil {
-					sugar.Error(err)
-				}
-
-				storage.AddCounter("PollCount", pollCounter) // Добавляем счетчик обновления метрик
-				err = repository.SendWithRetry(serverURL+"/updates", "counter", storage, 1, flagKey)
-				if err != nil {
-					sugar.Error(err)
-				} else {
-					pollCounter = 0
-				}
+				workerPool.Submit(func() {
+					err = repository.SendWithRetry(serverURL+"/updates", "gauge", storage, len(storage.GaugeSlice()), flagKey)
+					if err != nil {
+						sugar.Error(err)
+					}
+				})
+				workerPool.Submit(func() {
+					storage.AddCounter("PollCount", pollCounter) // Добавляем счетчик обновления метрик
+					err = repository.SendWithRetry(serverURL+"/updates", "counter", storage, len(storage.CounterSlice()), flagKey)
+					if err != nil {
+						sugar.Error(err)
+					} else {
+						pollCounter = 0
+					}
+				})
 
 			case <-stopReport:
 				return
@@ -162,6 +187,3 @@ func main() {
 	//	reportCounter = 0
 
 }
-
-//}
-//}

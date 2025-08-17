@@ -2,7 +2,9 @@ package main
 
 import (
 	"flag"
+	"github.com/tladugin/yaProject.git/internal/logger"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -11,6 +13,7 @@ var (
 	flagReportIntervalTime string
 	flagPollIntervalTime   string
 	flagKey                string
+	flagRateLimit          int
 )
 
 // parseFlags обрабатывает аргументы командной строки
@@ -23,7 +26,7 @@ func parseFlags() {
 	flag.StringVar(&flagReportIntervalTime, "r", "10", "time interval to report")
 	flag.StringVar(&flagPollIntervalTime, "p", "2", "poll interval")
 	flag.StringVar(&flagKey, "k", "", "key")
-
+	flag.IntVar(&flagRateLimit, "l", 1, "rate limit (max concurrent requests)")
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
 
@@ -45,5 +48,13 @@ func parseFlags() {
 	if ok && strings.TrimSpace(envKey) != "" {
 		flagKey = envKey
 	}
-
+	envRateLimit, ok := os.LookupEnv("RATE_LIMIT")
+	if ok && strings.TrimSpace(envRateLimit) != "" {
+		flagRateLimit, err := strconv.Atoi(envRateLimit)
+		if err == nil {
+			logger.Sugar.Info("Using rate limit: " + strconv.Itoa(flagRateLimit))
+		} else {
+			logger.Sugar.Info("Can't parse envRateLimit")
+		}
+	}
 }

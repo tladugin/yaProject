@@ -1,10 +1,10 @@
-package models
+package repository
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/tladugin/yaProject.git/internal/repository"
+	"github.com/tladugin/yaProject.git/internal/models"
 	"io"
 	"log"
 	"net"
@@ -13,37 +13,19 @@ import (
 	"time"
 )
 
-const (
-	Counter = "counter"
-	Gauge   = "gauge"
-)
-
-// NOTE: Не усложняем пример, вводя иерархическую вложенность структур.
-// Органичиваясь плоской моделью.
-// Delta и Value объявлены через указатели,
-// что бы отличать значение "0", от не заданного значения
-// и соответственно не кодировать в структуру.
-
-type Metrics struct {
-	ID    string   `json:"id"`              // имя метрики
-	MType string   `json:"type"`            // параметр, принимающий значение gauge или counter
-	Delta *int64   `json:"delta,omitempty"` // значение метрики в случае передачи counter
-	Value *float64 `json:"value,omitempty"` // значение метрики в случае передачи gauge
-}
-
-func SendMetric(URL string, metricType string, storage *repository.MemStorage, i int) error {
+func SendMetric(URL string, metricType string, storage *MemStorage, i int) error {
 	// 1. Подготовка метрики
-	var metric Metrics
+	var metric models.Metrics
 
 	switch metricType {
 	case "gauge":
-		metric = Metrics{
+		metric = models.Metrics{
 			MType: "gauge",
 			ID:    storage.GaugeSlice()[i].Name,
 			Value: &storage.GaugeSlice()[i].Value,
 		}
 	case "counter":
-		metric = Metrics{
+		metric = models.Metrics{
 			MType: "counter",
 			ID:    storage.CounterSlice()[i].Name,
 			Delta: &storage.CounterSlice()[i].Value,
@@ -59,7 +41,7 @@ func SendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	}
 
 	// 3. Сжатие данных
-	buf, err := repository.CompressData(jsonData)
+	buf, err := CompressData(jsonData)
 	if err != nil {
 		return fmt.Errorf("compress data error: %w", err)
 	}
@@ -103,21 +85,21 @@ func SendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	return nil
 }
 
-func SendMetricsBatch(URL string, metricType string, storage *repository.MemStorage, batchSize int) error {
+func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchSize int) error {
 	// 1. Подготовка URL
 	if !strings.HasPrefix(URL, "http://") && !strings.HasPrefix(URL, "https://") {
 		URL = "http://" + URL
 	}
 
 	// 2. Подготовка метрик в зависимости от типа
-	var metrics []Metrics
+	var metrics []models.Metrics
 	switch metricType {
 	case "gauge":
 		if len(storage.GaugeSlice()) == 0 {
 			return nil
 		}
 		for i := 0; i < min(len(storage.GaugeSlice()), batchSize); i++ {
-			metrics = append(metrics, Metrics{
+			metrics = append(metrics, models.Metrics{
 				MType: "gauge",
 				ID:    storage.GaugeSlice()[i].Name,
 				Value: &storage.GaugeSlice()[i].Value,
@@ -128,7 +110,7 @@ func SendMetricsBatch(URL string, metricType string, storage *repository.MemStor
 			return nil
 		}
 		for i := 0; i < min(len(storage.CounterSlice()), batchSize); i++ {
-			metrics = append(metrics, Metrics{
+			metrics = append(metrics, models.Metrics{
 				MType: "counter",
 				ID:    storage.CounterSlice()[i].Name,
 				Delta: &storage.CounterSlice()[i].Value,
@@ -145,7 +127,7 @@ func SendMetricsBatch(URL string, metricType string, storage *repository.MemStor
 	}
 
 	// 4. Сжатие данных
-	buf, err := repository.CompressData(jsonData)
+	buf, err := CompressData(jsonData)
 	if err != nil {
 		return fmt.Errorf("compress data error: %w", err)
 	}
@@ -200,7 +182,7 @@ func isRetriableError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
-func SendWithRetry(url, metricType string, storage *repository.MemStorage, i int) error {
+func SendWithRetry(url, metricType string, storage *MemStorage, i int) error {
 	maxRetries := 3
 	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error

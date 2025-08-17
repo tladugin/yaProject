@@ -6,20 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/tladugin/yaProject.git/internal/model"
-	"github.com/tladugin/yaProject.git/internal/repository"
+	"io"
 	"log"
 
-	"io"
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tladugin/yaProject.git/internal/models"
+	"github.com/tladugin/yaProject.git/internal/repository"
 
 	"net/http"
 	"strconv"
 	"strings"
 )
 
-func NewServerSync(s *repository.MemStorage, p *Producer) *ServerSync {
+func NewServerSync(s *repository.MemStorage, p *repository.Producer) *ServerSync {
 	return &ServerSync{
 		storage:  s,
 		producer: p,
@@ -65,7 +66,7 @@ func NewServerPingDB(s *repository.MemStorage, c *string) *ServerPing {
 
 type ServerSync struct {
 	storage  *repository.MemStorage
-	producer *Producer
+	producer *repository.Producer
 }
 
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {

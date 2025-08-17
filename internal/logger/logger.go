@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+var Sugar *zap.SugaredLogger
+
 func InitLogger() (*zap.SugaredLogger, error) {
 
 	log, err := zap.NewProduction(
@@ -16,9 +18,9 @@ func InitLogger() (*zap.SugaredLogger, error) {
 	if err != nil {
 		return nil, err
 	}
-	sugar := log.Sugar()
+	Sugar = log.Sugar()
 
-	return sugar, nil
+	return Sugar, nil
 }
 
 func LoggingRequest(sugar *zap.SugaredLogger) func(h http.Handler) http.Handler {

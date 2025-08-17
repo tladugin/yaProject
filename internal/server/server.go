@@ -2,19 +2,15 @@ package server
 
 import (
 	"github.com/go-chi/chi/v5"
-
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
-	"go.uber.org/zap"
-
 	"net/http"
 	"sync"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, sugar *zap.SugaredLogger, flagRunAddr *string, flagDatabaseDSN *string) {
+func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string) {
 	defer wg.Done()
 
 	s := handler.NewServer(storage)
@@ -27,13 +23,13 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 		//проверка миграций
 		p, _, err := repository.NewPostgresRepository(*flagDatabaseDSN)
 		if err != nil {
-			sugar.Error("Failed to initialize storage: %v", err.Error())
+			logger.Sugar.Error("Failed to initialize storage: %v", err.Error())
 		}
 		defer p.Close()
 		//соединение с БД
 		pool, _, _, err := repository.GetConnection(*flagDatabaseDSN)
 		if err != nil {
-			sugar.Error("Failed to get connection!: %v", err.Error())
+			logger.Sugar.Error("Failed to get connection!: %v", err.Error())
 		}
 		defer pool.Close()
 		ping = handler.NewServerPingDB(storage, flagDatabaseDSN)
@@ -43,8 +39,8 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 
 	r := chi.NewRouter()
 	r.Use(repository.GzipMiddleware,
-		logger.LoggingAnswer(sugar),
-		logger.LoggingRequest(sugar),
+		logger.LoggingAnswer(logger.Sugar),
+		logger.LoggingRequest(logger.Sugar),
 	)
 	r.Route("/", func(r chi.Router) {
 
@@ -64,11 +60,11 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 			r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
 
 			if flagStoreInterval == "0" {
-				sugar.Info("Running in sync backup mode")
+				logger.Sugar.Info("Running in sync backup mode")
 				r.Post("/update", sSync.PostUpdateSyncBackup)
 				r.Post("/update/", sSync.PostUpdateSyncBackup)
 			} else {
-				sugar.Info("Running in async backup mode")
+				logger.Sugar.Info("Running in async backup mode")
 				r.Post("/update", s.PostUpdate)
 				r.Post("/update/", s.PostUpdate)
 			}
@@ -86,14 +82,14 @@ func RunHTTPServer(storage *repository.MemStorage, producer *handler.Producer, s
 
 	go func() {
 		<-stop
-		sugar.Info("Shutting down HTTP server...")
+		logger.Sugar.Info("Shutting down HTTP server...")
 		if err := server.Close(); err != nil {
-			sugar.Error("HTTP server shutdown error: ", err)
+			logger.Sugar.Error("HTTP server shutdown error: ", err)
 		}
 	}()
 
-	sugar.Infof("Starting server on %s", *flagRunAddr)
+	logger.Sugar.Infof("Starting server on %s", *flagRunAddr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		sugar.Error("Server failed: ", err)
+		logger.Sugar.Error("Server failed: ", err)
 	}
 }

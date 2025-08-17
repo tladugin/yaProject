@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/tladugin/yaProject.git/internal/logger"
-	"github.com/tladugin/yaProject.git/internal/model"
 	"github.com/tladugin/yaProject.git/internal/repository"
 
 	"log"
@@ -11,7 +10,6 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
-
 	"time"
 )
 
@@ -112,7 +110,7 @@ func main() {
 
 				// Отправка gauge метрик
 				for i := range storage.GaugeSlice() {
-					err = models.SendWithRetry(serverURL+"/update", "gauge", storage, i)
+					err = repository.SendWithRetry(serverURL+"/update", "gauge", storage, i)
 
 					if err != nil {
 						sugar.Infoln(storage.GaugeSlice()[i])
@@ -124,7 +122,7 @@ func main() {
 				// Отправка counter метрик
 				for i := range storage.CounterSlice() {
 					storage.AddCounter("PollCount", pollCounter)
-					err = models.SendWithRetry(serverURL+"/update", "counter", storage, i)
+					err = repository.SendWithRetry(serverURL+"/update", "counter", storage, i)
 					if err != nil {
 						sugar.Infow("Failed to send counter metric after retries",
 							"metric", storage.CounterSlice()[i],

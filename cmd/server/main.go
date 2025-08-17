@@ -1,37 +1,35 @@
 package main
 
 import (
-	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
+	"github.com/tladugin/yaProject.git/internal/repository"
 	"github.com/tladugin/yaProject.git/internal/server"
 
-	"github.com/tladugin/yaProject.git/internal/repository"
 	"go.uber.org/zap"
+
 	"log"
-
 	"sync"
-
 	"time"
 )
 
 // logger
-var sugar *zap.SugaredLogger
+var Sugar *zap.SugaredLogger
 var err error
 
 func main() {
 	parseFlags()
 
 	// Инициализация логгера
-	sugar, err = logger.InitLogger()
+	Sugar, err = logger.InitLogger()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() {
-		_ = sugar.Sync() // Безопасное закрытие логгера
+		_ = Sugar.Sync() // Безопасное закрытие логгера
 	}()
 
 	// Убедимся, что sugar не nil
-	if sugar == nil {
+	if Sugar == nil {
 		log.Fatal("Logger initialization failed")
 	}
 
@@ -39,20 +37,20 @@ func main() {
 
 	// Восстановление данных из бэкапа
 	if flagRestore {
-		handler.RestoreFromBackup(storage, flagFileStoragePath, sugar)
+		repository.RestoreFromBackup(storage, flagFileStoragePath)
 	}
 
 	// Инициализация продюсера
-	producer, err := handler.NewProducer(flagFileStoragePath)
+	producer, err := repository.NewProducer(flagFileStoragePath)
 	if err != nil {
-		sugar.Fatal("Could not open backup file: ", err)
+		Sugar.Fatal("Could not open backup file: ", err)
 	}
 	//defer safeCloseProducer(producer)
 
 	// Парсинг интервала сохранения
 	storeInterval, err := time.ParseDuration(flagStoreInterval + "s")
 	if err != nil {
-		sugar.Fatal("Invalid store interval: ", err)
+		Sugar.Fatal("Invalid store interval: ", err)
 	}
 
 	// Канал для graceful shutdown
@@ -66,18 +64,18 @@ func main() {
 		go func() {
 			defer wg.Done()
 
-			handler.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flagFileStoragePath, sugar)
+			repository.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flagFileStoragePath)
 		}()
 	}
 
 	wg.Add(1)
-	go handler.RunFinalBackup(storage, producer, stopProgram, &wg, flagFileStoragePath, sugar)
+	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, flagFileStoragePath)
 
 	wg.Add(1)
-	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, sugar, &flagRunAddr, &flagDatabaseDSN)
+	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, &flagRunAddr, &flagDatabaseDSN)
 
 	// Ожидание сигнала завершения
-	handler.WaitForShutdown(stopProgram, *sugar)
+	repository.WaitForShutdown(stopProgram)
 	wg.Wait()
-	sugar.Info("Application shutdown complete")
+	Sugar.Info("Application shutdown complete")
 }

@@ -135,7 +135,7 @@ func main() {
 					sugar.Error(err)
 				}
 
-				storage.AddCounter("PollCount", pollCounter)
+				storage.AddCounter("PollCount", pollCounter) // Добавляем счетчик обновления метрик
 				err = repository.SendWithRetry(serverURL+"/updates", "counter", storage, 1, flagKey)
 				if err != nil {
 					sugar.Error(err)

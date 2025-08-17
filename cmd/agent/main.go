@@ -130,13 +130,13 @@ func main() {
 					}
 				*/
 
-				err = repository.SendMetricsBatch(serverURL+"/updates", "gauge", storage, 28, flagKey)
+				err = repository.SendWithRetry(serverURL+"/updates", "gauge", storage, 28, flagKey)
 				if err != nil {
 					sugar.Error(err)
 				}
 
 				storage.AddCounter("PollCount", pollCounter)
-				err = repository.SendMetricsBatch(serverURL+"/updates", "counter", storage, 1, flagKey)
+				err = repository.SendWithRetry(serverURL+"/updates", "counter", storage, 1, flagKey)
 				if err != nil {
 					sugar.Error(err)
 				} else {

@@ -144,7 +144,7 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 	}
 
 	// 5. Создание и настройка запроса
-	req, err := http.NewRequest("POST", URL+"/updates/", buf)
+	req, err := http.NewRequest("POST", URL, buf)
 	if err != nil {
 		return fmt.Errorf("request creation failed: %w", err)
 	}

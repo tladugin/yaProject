@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/tladugin/yaProject.git/internal/logger"
 	"io"
 	"log"
 
@@ -254,41 +255,41 @@ func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http
 	res.Header().Set("Content-Encoding", "gzip")
 	res.Header().Set("Accept-Encoding", "gzip")
 
-	//if *s.flagKey != "" {
-	if req.Header.Get("HashSHA256") != "" {
-		bytesBuf, err := io.ReadAll(req.Body)
-		if err != nil {
-			http.Error(res, err.Error(), http.StatusInternalServerError)
-		}
-		bytesKey := []byte(*s.flagKey)
-		if bytesKey != nil {
-			hash := sha256.Sum256(append(bytesKey, bytesBuf...))
-			hashHeaderServer := hex.EncodeToString(hash[:])
-			if hashHeaderServer != req.Header.Get("HashSHA256") {
-
-				res.Header().Set("HashSHA256", hashHeaderServer)
-				http.Error(res, "Invalid hash header", http.StatusBadRequest)
-				return
-
-			} else {
-				res.Header().Set("HashSHA256", hashHeaderServer)
-			}
-			//req.Header.Set("HashSHA256", hashHeader)
-		}
-
-	}
-	var metrics []models.Metrics
-
-	if err := json.NewDecoder(req.Body).Decode(&metrics); err != nil {
-		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+	// Читаем тело запроса один раз
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(res, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
 	defer req.Body.Close()
+
+	// Проверка хеша (если ключ установлен)
+	if req.Header.Get("HashSHA256") != "" && s.flagKey != nil && *s.flagKey != "" {
+		bytesKey := []byte(*s.flagKey)
+		hash := sha256.Sum256(append(bytesKey, bodyBytes...))
+		hashHeaderServer := hex.EncodeToString(hash[:])
+
+		if hashHeaderServer != req.Header.Get("HashSHA256") {
+			res.Header().Set("HashSHA256", hashHeaderServer)
+			http.Error(res, "Invalid hash header", http.StatusBadRequest)
+			return
+		}
+		res.Header().Set("HashSHA256", hashHeaderServer)
+	}
+
+	// Декодируем JSON из сохранённых байтов
+	var metrics []models.Metrics
+	if err := json.Unmarshal(bodyBytes, &metrics); err != nil {
+		logger.Sugar.Info("could not decode metrics json")
+		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
 
 	// Начинаем транзакцию
 	tx, err := s.connectionPool.Begin(ctx)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	defer tx.Rollback(ctx)
 
@@ -297,36 +298,42 @@ func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http
 		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	stmtCounter, err := tx.Prepare(ctx, "batch_update_counter",
 		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// Выполняем пакетное обновление
 	for _, value := range metrics {
+		var err error
 		switch value.MType {
 		case "gauge":
-			_, err := tx.Exec(ctx, stmtGauge.SQL, value.ID, value.Value)
-			if err != nil {
-				http.Error(res, err.Error(), http.StatusInternalServerError)
-			}
+			_, err = tx.Exec(ctx, stmtGauge.SQL, value.ID, value.Value)
 		case "counter":
-			_, err := tx.Exec(ctx, stmtCounter.SQL, value.ID, value.Delta)
-			if err != nil {
-				http.Error(res, err.Error(), http.StatusInternalServerError)
-			}
+			_, err = tx.Exec(ctx, stmtCounter.SQL, value.ID, value.Delta)
+		default:
+			http.Error(res, "Unknown metric type", http.StatusBadRequest)
+			return
 		}
 
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Фиксируем транзакцию
 	if err := tx.Commit(ctx); err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
+	res.WriteHeader(http.StatusOK)
 }
 
 // postgres handlers! ^----

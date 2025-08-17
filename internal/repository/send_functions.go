@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -102,29 +104,33 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 		URL = "http://" + URL
 	}
 
-	// 2. Подготовка метрик в зависимости от типа
+	// 2. Подготовка метрик
 	var metrics []models.Metrics
 	switch metricType {
 	case "gauge":
 		if len(storage.GaugeSlice()) == 0 {
 			return nil
 		}
-		for i := 0; i < min(len(storage.GaugeSlice()), batchSize); i++ {
+		count := min(len(storage.GaugeSlice()), batchSize)
+		for i := 0; i < count; i++ {
+			value := storage.GaugeSlice()[i].Value // Создаем копию значения
 			metrics = append(metrics, models.Metrics{
 				MType: "gauge",
 				ID:    storage.GaugeSlice()[i].Name,
-				Value: &storage.GaugeSlice()[i].Value,
+				Value: &value,
 			})
 		}
 	case "counter":
 		if len(storage.CounterSlice()) == 0 {
 			return nil
 		}
-		for i := 0; i < min(len(storage.CounterSlice()), batchSize); i++ {
+		count := min(len(storage.CounterSlice()), batchSize)
+		for i := 0; i < count; i++ {
+			delta := storage.CounterSlice()[i].Value
 			metrics = append(metrics, models.Metrics{
 				MType: "counter",
 				ID:    storage.CounterSlice()[i].Name,
-				Delta: &storage.CounterSlice()[i].Value,
+				Delta: &delta,
 			})
 		}
 	default:
@@ -138,13 +144,13 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 	}
 
 	// 4. Сжатие данных
-	buf, err := CompressData(jsonData)
+	compressedData, err := compressData(jsonData)
 	if err != nil {
 		return fmt.Errorf("compress data error: %w", err)
 	}
 
-	// 5. Создание и настройка запроса
-	req, err := http.NewRequest("POST", URL, buf)
+	// 5. Создание запроса
+	req, err := http.NewRequest("POST", URL, bytes.NewReader(compressedData))
 	if err != nil {
 		return fmt.Errorf("request creation failed: %w", err)
 	}
@@ -153,36 +159,42 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 
-	// 5.1 Проверяем наличие ключа, если он есть, отправляем в заголовке хеш
+	// 6. Добавление хеша, если есть ключ
 	if key != "" {
-		bytesBuf := buf.Bytes()
-		bytesKey := []byte(key)
-		hash := sha256.Sum256(append(bytesKey, bytesBuf...))
-		hashHeader := hex.EncodeToString(hash[:])
-		req.Header.Set("HashSHA256", hashHeader)
+		hash := sha256.Sum256(append([]byte(key), jsonData...)) // Хешируем исходные данные
+		req.Header.Set("HashSHA256", hex.EncodeToString(hash[:]))
 	}
-	// 6. Отправка запроса
+
+	// 7. Отправка запроса
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			log.Printf("failed to close response body: %v", err)
-		}
-	}()
+	defer resp.Body.Close()
 
-	// 7. Проверка ответа
+	// 8. Проверка ответа
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return fmt.Errorf("failed to read error response: %w", err)
 		}
-		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(bodyBytes))
+		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 	}
 
 	return nil
+}
+
+func compressData(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(data); err != nil {
+		return nil, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func min(a, b int) int {

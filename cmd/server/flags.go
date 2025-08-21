@@ -17,7 +17,7 @@ var (
 )
 
 // "host=localhost user=postgres password=543218 dbname=metrics sslmode=disable"
-
+// test
 // parseFlags обрабатывает аргументы командной строки
 // и сохраняет их значения в соответствующих переменных
 func parseFlags() {

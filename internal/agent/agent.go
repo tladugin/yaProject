@@ -124,7 +124,7 @@ func (a *Agent) collectRuntimeMetrics() {
 		"Alloc":         float64(m.Alloc),
 		"BuckHashSys":   float64(m.BuckHashSys),
 		"Frees":         float64(m.Frees),
-		"GCCPUFraction": m.GCCPUFraction,
+		"GCCPUFraction": float64(m.GCCPUFraction),
 		"GCSys":         float64(m.GCSys),
 		"HeapAlloc":     float64(m.HeapAlloc),
 		"HeapIdle":      float64(m.HeapIdle),

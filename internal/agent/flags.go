@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"flag"
@@ -8,45 +8,45 @@ import (
 	"strings"
 )
 
-var (
+type Flags struct {
 	flagRunAddr            string
 	flagReportIntervalTime string
 	flagPollIntervalTime   string
 	flagKey                string
 	flagRateLimit          int
-)
+}
 
 // parseFlags обрабатывает аргументы командной строки
 // и сохраняет их значения в соответствующих переменных
-func parseFlags() {
-
+func ParseFlags() *Flags {
+	var f Flags
 	// регистрируем переменную flagRunAddr
 	// как аргумент -a со значением :8080 по умолчанию
-	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "address and port to run server")
-	flag.StringVar(&flagReportIntervalTime, "r", "10", "time interval to report")
-	flag.StringVar(&flagPollIntervalTime, "p", "2", "poll interval")
-	flag.StringVar(&flagKey, "k", "", "key")
-	flag.IntVar(&flagRateLimit, "l", 1, "rate limit (max concurrent requests)")
+	flag.StringVar(&f.flagRunAddr, "a", "localhost:8080", "address and port to run server")
+	flag.StringVar(&f.flagReportIntervalTime, "r", "10", "time interval to report")
+	flag.StringVar(&f.flagPollIntervalTime, "p", "2", "poll interval")
+	flag.StringVar(&f.flagKey, "k", "", "key")
+	flag.IntVar(&f.flagRateLimit, "l", 1, "rate limit (max concurrent requests)")
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
 
 	envRunAddr, ok := os.LookupEnv("ADDRESS")
 	if ok && strings.TrimSpace(envRunAddr) != "" {
-		flagRunAddr = envRunAddr
+		f.flagRunAddr = envRunAddr
 	}
 
 	envReportInter, ok := os.LookupEnv("REPORT_INTERVAL")
 	if ok && strings.TrimSpace(envReportInter) != "" {
-		flagReportIntervalTime = envReportInter
+		f.flagReportIntervalTime = envReportInter
 	}
 
 	envPortInter, ok := os.LookupEnv("POLL_INTERVAL")
 	if ok && strings.TrimSpace(envPortInter) != "" {
-		flagPollIntervalTime = envPortInter
+		f.flagPollIntervalTime = envPortInter
 	}
 	envKey, ok := os.LookupEnv("KEY")
 	if ok && strings.TrimSpace(envKey) != "" {
-		flagKey = envKey
+		f.flagKey = envKey
 	}
 	envRateLimit, ok := os.LookupEnv("RATE_LIMIT")
 	if ok && strings.TrimSpace(envRateLimit) != "" {
@@ -57,4 +57,5 @@ func parseFlags() {
 			logger.Sugar.Info("Can't parse envRateLimit")
 		}
 	}
+	return &f
 }

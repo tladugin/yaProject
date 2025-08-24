@@ -15,7 +15,7 @@ import (
 var err error
 
 func main() {
-	parseFlags()
+	flags := parseFlags()
 
 	// Инициализация логгера
 	logger.Sugar, err = logger.InitLogger()
@@ -34,19 +34,19 @@ func main() {
 	storage := repository.NewMemStorage()
 
 	// Восстановление данных из бэкапа
-	if flagRestore {
-		repository.RestoreFromBackup(storage, flagFileStoragePath)
+	if flags.flagRestore {
+		repository.RestoreFromBackup(storage, flags.flagFileStoragePath)
 	}
 
 	// Инициализация продюсера
-	producer, err := repository.NewProducer(flagFileStoragePath)
+	producer, err := repository.NewProducer(flags.flagFileStoragePath)
 	if err != nil {
 		logger.Sugar.Fatal("Could not open backup file: ", err)
 	}
 	//defer safeCloseProducer(producer)
 
 	// Парсинг интервала сохранения
-	storeInterval, err := time.ParseDuration(flagStoreInterval + "s")
+	storeInterval, err := time.ParseDuration(flags.flagStoreInterval + "s")
 	if err != nil {
 		logger.Sugar.Fatal("Invalid store interval: ", err)
 	}
@@ -57,20 +57,20 @@ func main() {
 
 	// Запуск фоновых задач
 
-	if flagStoreInterval != "0" {
+	if flags.flagStoreInterval != "0" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
-			repository.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flagFileStoragePath)
+			repository.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flags.flagFileStoragePath)
 		}()
 	}
 
 	wg.Add(1)
-	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, flagFileStoragePath)
+	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, flags.flagFileStoragePath)
 
 	wg.Add(1)
-	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, &flagRunAddr, &flagDatabaseDSN, &flagKey)
+	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flags.flagStoreInterval, &flags.flagRunAddr, &flags.flagDatabaseDSN, &flags.flagKey)
 
 	// Ожидание сигнала завершения
 	repository.WaitForShutdown(stopProgram)

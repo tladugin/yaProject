@@ -2,13 +2,15 @@ package agent
 
 import (
 	"fmt"
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/tladugin/yaProject.git/internal/repository"
-	"go.uber.org/zap"
-	"math/rand/v2"
+	"math/rand"
 	"runtime"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
+
+	"github.com/tladugin/yaProject.git/internal/repository"
+	"go.uber.org/zap"
 )
 
 type Agent struct {
@@ -26,7 +28,7 @@ func NewAgent(flags *Flags, logger *zap.SugaredLogger) *Agent {
 		flags:      flags,
 		logger:     logger,
 		storage:    repository.NewMemStorage(),
-		workerPool: NewWorkerPool(flags.flagRateLimit),
+		workerPool: NewWorkerPool(flags.FlagRateLimit),
 		stopPoll:   make(chan struct{}),
 		stopReport: make(chan struct{}),
 	}
@@ -55,7 +57,7 @@ func (a *Agent) Stop() {
 }
 
 func (a *Agent) startPolling() {
-	pollDuration, err := time.ParseDuration(a.flags.flagPollIntervalTime + "s")
+	pollDuration, err := time.ParseDuration(a.flags.FlagPollIntervalTime + "s")
 	if err != nil {
 		a.logger.Fatal("Invalid poll interval:", err)
 	}
@@ -75,7 +77,7 @@ func (a *Agent) startPolling() {
 }
 
 func (a *Agent) startSystemMetricsPolling() {
-	pollDuration, err := time.ParseDuration(a.flags.flagPollIntervalTime + "s")
+	pollDuration, err := time.ParseDuration(a.flags.FlagPollIntervalTime + "s")
 	if err != nil {
 		a.logger.Fatal("Invalid poll interval:", err)
 	}
@@ -94,7 +96,7 @@ func (a *Agent) startSystemMetricsPolling() {
 }
 
 func (a *Agent) startReporting() {
-	reportDuration, err := time.ParseDuration(a.flags.flagReportIntervalTime + "s")
+	reportDuration, err := time.ParseDuration(a.flags.FlagReportIntervalTime + "s")
 	if err != nil {
 		a.logger.Fatal("Invalid report interval:", err)
 	}
@@ -122,7 +124,7 @@ func (a *Agent) collectRuntimeMetrics() {
 		"Alloc":         float64(m.Alloc),
 		"BuckHashSys":   float64(m.BuckHashSys),
 		"Frees":         float64(m.Frees),
-		"GCCPUFraction": float64(m.GCCPUFraction),
+		"GCCPUFraction": m.GCCPUFraction,
 		"GCSys":         float64(m.GCSys),
 		"HeapAlloc":     float64(m.HeapAlloc),
 		"HeapIdle":      float64(m.HeapIdle),
@@ -173,11 +175,11 @@ func (a *Agent) sendMetrics() {
 	// Отправка gauge метрик
 	a.workerPool.Submit(func() {
 		err := repository.SendWithRetry(
-			a.flags.flagRunAddr+"/updates",
+			a.flags.FlagRunAddr+"/updates",
 			"gauge",
 			a.storage,
 			len(a.storage.GaugeSlice()),
-			a.flags.flagKey,
+			a.flags.FlagKey,
 		)
 		if err != nil {
 			a.logger.Error("Failed to send gauge metrics:", err)
@@ -188,11 +190,11 @@ func (a *Agent) sendMetrics() {
 	a.workerPool.Submit(func() {
 		a.storage.AddCounter("PollCount", a.pollCounter)
 		err := repository.SendWithRetry(
-			a.flags.flagRunAddr+"/updates",
+			a.flags.FlagRunAddr+"/updates",
 			"counter",
 			a.storage,
 			len(a.storage.CounterSlice()),
-			a.flags.flagKey,
+			a.flags.FlagKey,
 		)
 		if err != nil {
 			a.logger.Error("Failed to send counter metrics:", err)

@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -19,11 +21,15 @@ type Agent struct {
 	storage     *repository.MemStorage
 	workerPool  *WorkerPool
 	pollCounter int64
+	ctx         context.Context
+	cancel      context.CancelFunc
 	stopPoll    chan struct{}
 	stopReport  chan struct{}
+	wg          sync.WaitGroup
 }
 
 func NewAgent(flags *Flags, logger *zap.SugaredLogger) *Agent {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Agent{
 		flags:      flags,
 		logger:     logger,
@@ -31,6 +37,8 @@ func NewAgent(flags *Flags, logger *zap.SugaredLogger) *Agent {
 		workerPool: NewWorkerPool(flags.FlagRateLimit),
 		stopPoll:   make(chan struct{}),
 		stopReport: make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 }
 
@@ -41,7 +49,8 @@ func (a *Agent) Start() error {
 	a.storage.AddCounter("PollCount", 0)
 	a.pollCounter = 0
 
-	// Запуск воркеров
+	// Запуск воркеров с использованием wait group
+	a.wg.Add(3)
 	go a.startPolling()
 	go a.startSystemMetricsPolling()
 	go a.startReporting()
@@ -51,12 +60,21 @@ func (a *Agent) Start() error {
 
 func (a *Agent) Stop() {
 	a.logger.Info("Stopping agent...")
-	close(a.stopPoll)
-	close(a.stopReport)
+
+	// Отправляем сигнал остановки всем горутинам
+	a.cancel()
+
+	// Ждем завершения всех горутин
+	a.wg.Wait()
+
+	// Останавливаем worker pool
 	a.workerPool.Shutdown()
+
+	a.logger.Info("Agent stopped successfully")
 }
 
 func (a *Agent) startPolling() {
+	defer a.wg.Done()
 	pollDuration, err := time.ParseDuration(a.flags.FlagPollIntervalTime + "s")
 	if err != nil {
 		a.logger.Fatal("Invalid poll interval:", err)
@@ -77,6 +95,7 @@ func (a *Agent) startPolling() {
 }
 
 func (a *Agent) startSystemMetricsPolling() {
+	defer a.wg.Done()
 	pollDuration, err := time.ParseDuration(a.flags.FlagPollIntervalTime + "s")
 	if err != nil {
 		a.logger.Fatal("Invalid poll interval:", err)
@@ -96,6 +115,7 @@ func (a *Agent) startSystemMetricsPolling() {
 }
 
 func (a *Agent) startReporting() {
+	defer a.wg.Done()
 	reportDuration, err := time.ParseDuration(a.flags.FlagReportIntervalTime + "s")
 	if err != nil {
 		a.logger.Fatal("Invalid report interval:", err)

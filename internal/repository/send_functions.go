@@ -204,15 +204,36 @@ func min(a, b int) int {
 	return b
 }
 
+/*
+	func isRetriableError(err error) bool {
+		// Считаем ошибку временной, если это:
+		// - ошибка сети/соединения
+		// - таймаут
+		// - 5xx ошибка сервера
+		var netErr net.Error
+		return errors.As(err, &netErr)
+	}
+*/
 func isRetriableError(err error) bool {
-	// Считаем ошибку временной, если это:
-	// - ошибка сети/соединения
-	// - таймаут
-	// - 5xx ошибка сервера
-	var netErr net.Error
-	return errors.As(err, &netErr)
-}
+	if err == nil {
+		return false
+	}
 
+	// Все сетевые ошибки считаем повторяемыми
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	// Дополнительные проверки по строковому содержанию
+	errorMsg := err.Error()
+	return strings.Contains(errorMsg, "502") ||
+		strings.Contains(errorMsg, "503") ||
+		strings.Contains(errorMsg, "504") ||
+		strings.Contains(errorMsg, "connection") ||
+		strings.Contains(errorMsg, "network") ||
+		strings.Contains(errorMsg, "timeout")
+}
 func SendWithRetry(url, metricType string, storage *MemStorage, i int, key string) error {
 	maxRetries := 3
 	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}

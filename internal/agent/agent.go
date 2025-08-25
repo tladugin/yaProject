@@ -1,141 +1,37 @@
 package agent
 
 import (
-	"context"
 	"fmt"
-	"math/rand"
-	"runtime"
-	"sync"
-	"time"
-
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"go.uber.org/zap"
+	"math/rand"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
 )
 
-type Agent struct {
-	flags       *Flags
-	logger      *zap.SugaredLogger
-	storage     *repository.MemStorage
-	workerPool  *WorkerPool
-	pollCounter int64
-	ctx         context.Context
-	cancel      context.CancelFunc
-	stopPoll    chan struct{}
-	stopReport  chan struct{}
-	wg          sync.WaitGroup
-}
+func WaitForShutdownSignal(stopPoll, stopReport chan struct{}, fatalErrors chan error, sugar *zap.SugaredLogger) {
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
-func NewAgent(flags *Flags, logger *zap.SugaredLogger) *Agent {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &Agent{
-		flags:      flags,
-		logger:     logger,
-		storage:    repository.NewMemStorage(),
-		workerPool: NewWorkerPool(flags.FlagRateLimit),
-		stopPoll:   make(chan struct{}),
-		stopReport: make(chan struct{}),
-		ctx:        ctx,
-		cancel:     cancel,
-	}
-}
+	select {
+	case <-shutdown:
+		// Останавливаем горутины
+		close(stopPoll)
+		close(stopReport)
+		sugar.Infoln("Shutting down...")
 
-func (a *Agent) Start() error {
-	a.logger.Info("Starting agent...")
-
-	// Инициализация счетчика
-	a.storage.AddCounter("PollCount", 0)
-	a.pollCounter = 0
-
-	// Запуск воркеров с использованием wait group
-	a.wg.Add(3)
-	go a.startPolling()
-	go a.startSystemMetricsPolling()
-	go a.startReporting()
-
-	return nil
-}
-
-func (a *Agent) Stop() {
-	a.logger.Info("Stopping agent...")
-
-	// Отправляем сигнал остановки всем горутинам
-	a.cancel()
-
-	// Ждем завершения всех горутин
-	a.wg.Wait()
-
-	// Останавливаем worker pool
-	a.workerPool.Shutdown()
-
-	a.logger.Info("Agent stopped successfully")
-}
-
-func (a *Agent) startPolling() {
-	defer a.wg.Done()
-	pollDuration, err := time.ParseDuration(a.flags.FlagPollIntervalTime + "s")
-	if err != nil {
-		a.logger.Fatal("Invalid poll interval:", err)
+	case err := <-fatalErrors:
+		sugar.Fatal("Fatal error occurred: ", err)
 	}
 
-	ticker := time.NewTicker(pollDuration)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			a.collectRuntimeMetrics()
-			a.pollCounter++
-		case <-a.stopPoll:
-			return
-		}
-	}
 }
 
-func (a *Agent) startSystemMetricsPolling() {
-	defer a.wg.Done()
-	pollDuration, err := time.ParseDuration(a.flags.FlagPollIntervalTime + "s")
-	if err != nil {
-		a.logger.Fatal("Invalid poll interval:", err)
-	}
-
-	ticker := time.NewTicker(pollDuration)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			a.collectSystemMetrics()
-		case <-a.stopPoll:
-			return
-		}
-	}
-}
-
-func (a *Agent) startReporting() {
-	defer a.wg.Done()
-	reportDuration, err := time.ParseDuration(a.flags.FlagReportIntervalTime + "s")
-	if err != nil {
-		a.logger.Fatal("Invalid report interval:", err)
-	}
-
-	ticker := time.NewTicker(reportDuration)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			a.sendMetrics()
-		case <-a.stopReport:
-			return
-		}
-	}
-}
-
-func (a *Agent) collectRuntimeMetrics() {
-	a.logger.Info("Updating runtime metrics...")
+func CollectRuntimeMetrics(storage *repository.MemStorage) {
 
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -172,54 +68,19 @@ func (a *Agent) collectRuntimeMetrics() {
 	}
 
 	for name, value := range metrics {
-		a.storage.AddGauge(name, value)
+		storage.AddGauge(name, value)
 	}
 }
 
-func (a *Agent) collectSystemMetrics() {
+func CollectSystemMetrics(storage *repository.MemStorage) {
 	if v, err := mem.VirtualMemory(); err == nil {
-		a.storage.AddGauge("TotalMemory", float64(v.Total))
-		a.storage.AddGauge("FreeMemory", float64(v.Free))
+		storage.AddGauge("TotalMemory", float64(v.Total))
+		storage.AddGauge("FreeMemory", float64(v.Free))
 	}
 
 	if percents, err := cpu.Percent(0, true); err == nil {
 		for i, percent := range percents {
-			a.storage.AddGauge(fmt.Sprintf("CPUutilization%d", i+1), percent)
+			storage.AddGauge(fmt.Sprintf("CPUutilization%d", i+1), percent)
 		}
 	}
-}
-
-func (a *Agent) sendMetrics() {
-	a.logger.Info("Sending metrics...")
-
-	// Отправка gauge метрик
-	a.workerPool.Submit(func() {
-		err := repository.SendWithRetry(
-			a.flags.FlagRunAddr+"/updates",
-			"gauge",
-			a.storage,
-			len(a.storage.GaugeSlice()),
-			a.flags.FlagKey,
-		)
-		if err != nil {
-			a.logger.Error("Failed to send gauge metrics:", err)
-		}
-	})
-
-	// Отправка counter метрик
-	a.workerPool.Submit(func() {
-		a.storage.AddCounter("PollCount", a.pollCounter)
-		err := repository.SendWithRetry(
-			a.flags.FlagRunAddr+"/updates",
-			"counter",
-			a.storage,
-			len(a.storage.CounterSlice()),
-			a.flags.FlagKey,
-		)
-		if err != nil {
-			a.logger.Error("Failed to send counter metrics:", err)
-		} else {
-			a.pollCounter = 0
-		}
-	})
 }

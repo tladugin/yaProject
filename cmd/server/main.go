@@ -43,7 +43,6 @@ func main() {
 	if err != nil {
 		logger.Sugar.Fatal("Could not open backup file: ", err)
 	}
-	//defer safeCloseProducer(producer)
 
 	// Парсинг интервала сохранения
 	storeInterval, err := time.ParseDuration(flags.flagStoreInterval + "s")

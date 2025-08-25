@@ -204,37 +204,38 @@ func min(a, b int) int {
 	return b
 }
 
+func isRetriableError(err error) bool {
+	// Считаем ошибку временной, если это:
+	// - ошибка сети/соединения
+	// - таймаут
+	// - 5xx ошибка сервера
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
 /*
 	func isRetriableError(err error) bool {
-		// Считаем ошибку временной, если это:
-		// - ошибка сети/соединения
-		// - таймаут
-		// - 5xx ошибка сервера
+		if err == nil {
+			return false
+		}
+
+		// Все сетевые ошибки считаем повторяемыми
 		var netErr net.Error
-		return errors.As(err, &netErr)
+		if errors.As(err, &netErr) {
+			return true
+		}
+
+		// Дополнительные проверки по строковому содержанию
+		errorMsg := err.Error()
+		return strings.Contains(errorMsg, "502") ||
+			strings.Contains(errorMsg, "503") ||
+			strings.Contains(errorMsg, "504") ||
+			strings.Contains(errorMsg, "connection") ||
+			strings.Contains(errorMsg, "network") ||
+			strings.Contains(errorMsg, "timeout")
 	}
 */
-func isRetriableError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	// Все сетевые ошибки считаем повторяемыми
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-
-	// Дополнительные проверки по строковому содержанию
-	errorMsg := err.Error()
-	return strings.Contains(errorMsg, "502") ||
-		strings.Contains(errorMsg, "503") ||
-		strings.Contains(errorMsg, "504") ||
-		strings.Contains(errorMsg, "connection") ||
-		strings.Contains(errorMsg, "network") ||
-		strings.Contains(errorMsg, "timeout")
-}
-func SendWithRetry(url, metricType string, storage *MemStorage, i int, key string) error {
+func SendWithRetry(url string, storage *MemStorage, key string) error {
 	maxRetries := 3
 	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
@@ -244,14 +245,21 @@ func SendWithRetry(url, metricType string, storage *MemStorage, i int, key strin
 			time.Sleep(retryDelays[attempt-1])
 		}
 
-		err := SendMetricsBatch(url, metricType, storage, i, key)
-		if err == nil {
+		errG := SendMetricsBatch(url, "gauge", storage, len(storage.gaugeSlice), key)
+		if errG == nil {
 			return nil
 		}
 
-		lastErr = err
+		lastErr = errG
 
-		if !isRetriableError(err) {
+		errC := SendMetricsBatch(url, "counter", storage, len(storage.counterSlice), key)
+		if errC == nil {
+			return nil
+		}
+
+		lastErr = errC
+
+		if !isRetriableError(errG) || !isRetriableError(errC) {
 			break
 		}
 	}

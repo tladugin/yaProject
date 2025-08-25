@@ -83,21 +83,16 @@ func main() {
 			select {
 			case <-reportTicker.C:
 				sugar.Infoln("Sending metrics...")
-
-				workerPool.Submit(func() {
-					err = repository.SendWithRetry(serverURL+"/updates", "gauge", storage, len(storage.GaugeSlice()), flags.FlagKey)
-					if err != nil {
-						fatalErrors <- fmt.Errorf("failed to send gauge metrics: %w", err)
-					}
-				})
-
+				reportTicker.Stop()
 				workerPool.Submit(func() {
 					storage.AddCounter("PollCount", pollCounter)
-					err = repository.SendWithRetry(serverURL+"/updates", "counter", storage, len(storage.CounterSlice()), flags.FlagKey)
+					err = repository.SendWithRetry(serverURL+"/updates", storage, flags.FlagKey)
 					if err != nil {
-						fatalErrors <- fmt.Errorf("failed to send counter metrics: %w", err)
+
+						fatalErrors <- fmt.Errorf("failed to send gauge metrics: %w", err)
 					} else {
 						pollCounter = 0
+						reportTicker.Reset(reportDuration)
 					}
 				})
 

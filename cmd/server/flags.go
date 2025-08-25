@@ -44,22 +44,22 @@ func parseFlags() flags {
 		f.flagStoreInterval = envStoreInterval
 	}
 
-	envFileStoragePath, ok := os.LookupEnv("STORE_INTERVAL")
+	envFileStoragePath, ok := os.LookupEnv("FILE_STORAGE_PATH")
 	if ok && strings.TrimSpace(envFileStoragePath) != "" {
 		f.flagFileStoragePath = envFileStoragePath
 	}
 
-	envRestoreKey, ok := os.LookupEnv("STORE_INTERVAL")
+	envRestoreKey, ok := os.LookupEnv("RESTORE")
 	if ok && strings.TrimSpace(envRestoreKey) != "" {
 		f.flagRestore = true
 	}
 
-	envConnectString, ok := os.LookupEnv("STORE_INTERVAL")
+	envConnectString, ok := os.LookupEnv("DATABASE_DSN")
 	if ok && strings.TrimSpace(envConnectString) != "" {
 		f.flagDatabaseDSN = envConnectString
 	}
 
-	envKey, ok := os.LookupEnv("STORE_INTERVAL")
+	envKey, ok := os.LookupEnv("KEY")
 	if ok && strings.TrimSpace(envKey) != "" {
 		f.flagKey = envKey
 	}

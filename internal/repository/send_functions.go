@@ -98,7 +98,7 @@ func SendMetric(URL string, metricType string, storage *MemStorage, i int, key s
 	return nil
 }
 
-func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchSize int, key string) error {
+func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchSize int, key string, pollCounter int64) error {
 	// 1. Подготовка URL
 	if !strings.HasPrefix(URL, "http://") && !strings.HasPrefix(URL, "https://") {
 		URL = "http://" + URL
@@ -111,8 +111,8 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 		if len(storage.GaugeSlice()) == 0 {
 			return nil
 		}
-		count := min(len(storage.GaugeSlice()), batchSize)
-		for i := 0; i < count; i++ {
+		//count := min(len(storage.GaugeSlice()), batchSize)
+		for i := 0; i < batchSize; i++ {
 			value := storage.GaugeSlice()[i].Value // Создаем копию значения
 			metrics = append(metrics, models.Metrics{
 				MType: "gauge",
@@ -124,14 +124,16 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 		if len(storage.CounterSlice()) == 0 {
 			return nil
 		}
-		count := min(len(storage.CounterSlice()), batchSize)
-		for i := 0; i < count; i++ {
-			delta := storage.CounterSlice()[i].Value
+		//count := min(len(storage.CounterSlice()), batchSize)
+		for i := 0; i < batchSize; i++ {
+			//delta := storage.CounterSlice()[i].Value
+			delta := pollCounter
 			metrics = append(metrics, models.Metrics{
 				MType: "counter",
 				ID:    storage.CounterSlice()[i].Name,
 				Delta: &delta,
 			})
+
 		}
 	default:
 		return fmt.Errorf("unknown metric type: %s", metricType)
@@ -197,13 +199,6 @@ func compressData(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func isRetriableError(err error) bool {
 	// Считаем ошибку временной, если это:
 	// - ошибка сети/соединения
@@ -235,7 +230,7 @@ func isRetriableError(err error) bool {
 			strings.Contains(errorMsg, "timeout")
 	}
 */
-func SendWithRetry(url string, storage *MemStorage, key string) error {
+func SendWithRetry(url string, storage *MemStorage, key string, pollCounter int64) error {
 	maxRetries := 3
 	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
@@ -245,14 +240,14 @@ func SendWithRetry(url string, storage *MemStorage, key string) error {
 			time.Sleep(retryDelays[attempt-1])
 		}
 
-		errG := SendMetricsBatch(url, "gauge", storage, len(storage.gaugeSlice), key)
-		if errG == nil {
-			return nil
+		errG := SendMetricsBatch(url, "gauge", storage, len(storage.gaugeSlice), key, pollCounter)
+		if errG != nil {
+			lastErr = errG
 		}
 
 		lastErr = errG
 
-		errC := SendMetricsBatch(url, "counter", storage, len(storage.counterSlice), key)
+		errC := SendMetricsBatch(url, "counter", storage, len(storage.counterSlice), key, pollCounter)
 		if errC == nil {
 			return nil
 		}

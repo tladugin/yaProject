@@ -378,7 +378,6 @@ func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) 
 
 		switch value.MType {
 		case "gauge":
-
 			s.storage.AddGauge(value.ID, *value.Value)
 		case "counter":
 			s.storage.AddCounter(value.ID, *value.Delta)

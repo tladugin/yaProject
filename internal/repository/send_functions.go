@@ -111,7 +111,7 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 		if len(storage.GaugeSlice()) == 0 {
 			return nil
 		}
-		//count := min(len(storage.GaugeSlice()), batchSize)
+
 		for i := 0; i < batchSize; i++ {
 			value := storage.GaugeSlice()[i].Value // Создаем копию значения
 			metrics = append(metrics, models.Metrics{
@@ -124,7 +124,7 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 		if len(storage.CounterSlice()) == 0 {
 			return nil
 		}
-		//count := min(len(storage.CounterSlice()), batchSize)
+
 		for i := 0; i < batchSize; i++ {
 			//delta := storage.CounterSlice()[i].Value
 			delta := pollCounter
@@ -208,28 +208,6 @@ func isRetriableError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
-/*
-	func isRetriableError(err error) bool {
-		if err == nil {
-			return false
-		}
-
-		// Все сетевые ошибки считаем повторяемыми
-		var netErr net.Error
-		if errors.As(err, &netErr) {
-			return true
-		}
-
-		// Дополнительные проверки по строковому содержанию
-		errorMsg := err.Error()
-		return strings.Contains(errorMsg, "502") ||
-			strings.Contains(errorMsg, "503") ||
-			strings.Contains(errorMsg, "504") ||
-			strings.Contains(errorMsg, "connection") ||
-			strings.Contains(errorMsg, "network") ||
-			strings.Contains(errorMsg, "timeout")
-	}
-*/
 func SendWithRetry(url string, storage *MemStorage, key string, pollCounter int64) error {
 	maxRetries := 3
 	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}

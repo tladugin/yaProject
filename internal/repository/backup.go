@@ -161,26 +161,6 @@ func RunPeriodicBackup(storage *MemStorage, producer *Producer, interval time.Du
 	}
 }
 
-/*
-func RunPeriodicPostgresBackup(storage *repository.MemStorage, pool *pgxpool.Pool, interval time.Duration, stop <-chan struct{}) {
-
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				if err := performBackupToPostgres(storage, pool, sugar); err != nil {
-					sugar.Error("Periodic backup to postgres failed: ", err)
-				} else {
-					sugar.Info("Periodic backup to postgres complete")
-				}
-			case <-stop:
-				return
-			}
-		}
-	}
-*/
 func RunFinalBackup(storage *MemStorage, producer *Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagFileStoragePath string) {
 	defer wg.Done()
 	<-stop

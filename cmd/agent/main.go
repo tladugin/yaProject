@@ -59,7 +59,7 @@ func main() {
 				sugar.Infoln("Updating metrics...")
 				agent.CollectRuntimeMetrics(storage)
 				pollCounter++
-				//sugar.Infow("Updated metrics", "count", pollCounter)
+
 			case <-stopPoll:
 				return
 			}
@@ -85,16 +85,14 @@ func main() {
 				reportTicker.Stop()
 				workerPool.Submit(func() {
 
-					//storage.AddCounter("PollCount", pollCounter)
-					//sugar.Infoln("Len counter metrics", pollCounter)
 					err = repository.SendWithRetry(serverURL+"/updates", storage, flags.FlagKey, pollCounter)
 					if err != nil {
 
-						//fatalErrors <- fmt.Errorf("failed to send gauge metrics: %w", err)
 						sugar.Errorf("Error sending metrics: %v", err)
+						reportTicker.Reset(reportDuration)
 					} else {
 						pollCounter = 0
-						//sugar.Infof("Metrics sent successfully", pollCounter)
+
 						reportTicker.Reset(reportDuration)
 					}
 				})

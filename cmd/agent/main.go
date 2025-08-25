@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/tladugin/yaProject.git/internal/agent"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
@@ -89,7 +88,8 @@ func main() {
 					err = repository.SendWithRetry(serverURL+"/updates", storage, flags.FlagKey)
 					if err != nil {
 
-						fatalErrors <- fmt.Errorf("failed to send gauge metrics: %w", err)
+						//fatalErrors <- fmt.Errorf("failed to send gauge metrics: %w", err)
+						sugar.Errorf("Error sending metrics: %v", err)
 					} else {
 						pollCounter = 0
 						reportTicker.Reset(reportDuration)

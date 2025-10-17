@@ -7,7 +7,7 @@ import (
 )
 
 // initAuditObservers инициализирует наблюдатели на основе конфигурации
-func initAuditObservers(manager *AuditManager, flagAuditFile, flagAuditUrl *string) {
+func initAuditObservers(manager *AuditManager, flagAuditFile, flagAuditURL *string) {
 	// Файловый наблюдатель
 	if *flagAuditFile != "" {
 		fileObserver, err := NewFileObserver(*flagAuditFile)
@@ -20,10 +20,10 @@ func initAuditObservers(manager *AuditManager, flagAuditFile, flagAuditUrl *stri
 	}
 
 	// HTTP наблюдатель
-	if *flagAuditUrl != "" {
-		httpObserver := NewHTTPObserver(*flagAuditUrl)
+	if *flagAuditURL != "" {
+		httpObserver := NewHTTPObserver(*flagAuditURL)
 		manager.AddObserver(httpObserver)
-		logger.Sugar.Infof("HTTP audit enabled: %s", *flagAuditUrl)
+		logger.Sugar.Infof("HTTP audit enabled: %s", *flagAuditURL)
 	}
 
 	if manager.IsEnabled() {

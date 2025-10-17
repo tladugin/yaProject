@@ -338,9 +338,12 @@ func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Добавляем данные для аудита в контекст
+	// Добавляем данные для аудита в контекст и сохраняем обновленный запрос
 	ip := getIPAddress(req)
-	req = WithAuditData(req, metricNames, ip)
+	updatedReq := WithAuditData(req, metricNames, ip)
+
+	// Сохраняем обновленный контекст в оригинальный запрос
+	*req = *updatedReq
 
 	res.WriteHeader(http.StatusOK)
 }
@@ -401,8 +404,12 @@ func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) 
 
 	}
 	// Добавляем данные для аудита в контекст
+	// Добавляем данные для аудита в контекст и сохраняем обновленный запрос
 	ip := getIPAddress(req)
-	req = WithAuditData(req, metricNames, ip)
+	updatedReq := WithAuditData(req, metricNames, ip)
+
+	// Сохраняем обновленный контекст в оригинальный запрос
+	*req = *updatedReq
 
 	res.WriteHeader(http.StatusOK)
 }

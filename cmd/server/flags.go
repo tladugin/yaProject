@@ -14,7 +14,7 @@ type flags struct {
 	flagDatabaseDSN     string
 	flagKey             string
 	flagAuditFile       string
-	flagAuditUrl        string
+	flagAuditURL        string
 }
 
 // "host=localhost user=postgres password=543218 dbname=metrics sslmode=disable"
@@ -34,7 +34,7 @@ func parseFlags() flags {
 	flag.StringVar(&f.flagDatabaseDSN, "d", defaultDSN, "database DSN")
 	flag.StringVar(&f.flagKey, "k", "", "key")
 	flag.StringVar(&f.flagAuditFile, "audit-file", "", "path for server audit file")
-	flag.StringVar(&f.flagAuditUrl, "audit-url", "", "audit URL")
+	flag.StringVar(&f.flagAuditURL, "audit-url", "", "audit URL")
 
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
@@ -74,7 +74,7 @@ func parseFlags() flags {
 	}
 	envAuditUrl, ok := os.LookupEnv("AUDIT_URL")
 	if ok && strings.TrimSpace(envAuditUrl) != "" {
-		f.flagAuditUrl = envAuditUrl
+		f.flagAuditURL = envAuditUrl
 	}
 	return f
 }

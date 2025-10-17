@@ -72,9 +72,9 @@ func parseFlags() flags {
 	if ok && strings.TrimSpace(envAuditFile) != "" {
 		f.flagAuditFile = envAuditFile
 	}
-	envAuditUrl, ok := os.LookupEnv("AUDIT_URL")
-	if ok && strings.TrimSpace(envAuditUrl) != "" {
-		f.flagAuditURL = envAuditUrl
+	envAuditURL, ok := os.LookupEnv("AUDIT_URL")
+	if ok && strings.TrimSpace(envAuditURL) != "" {
+		f.flagAuditURL = envAuditURL
 	}
 	return f
 }

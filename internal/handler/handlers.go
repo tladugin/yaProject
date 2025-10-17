@@ -285,6 +285,12 @@ func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http
 		return
 	}
 
+	// Собираем названия метрик для аудита
+	var metricNames []string
+	for _, metric := range metrics {
+		metricNames = append(metricNames, metric.ID)
+	}
+
 	// Начинаем транзакцию
 	tx, err := s.connectionPool.Begin(ctx)
 	if err != nil {
@@ -332,6 +338,9 @@ func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http
 		http.Error(res, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Добавляем данные для аудита в контекст
+	ip := getIPAddress(req)
+	req = WithAuditData(req, metricNames, ip)
 
 	res.WriteHeader(http.StatusOK)
 }
@@ -372,7 +381,11 @@ func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) 
 		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
-
+	// Собираем названия метрик для аудита
+	var metricNames []string
+	for _, value := range metrics {
+		metricNames = append(metricNames, value.ID)
+	}
 	// Выполняем пакетное обновление
 	for _, value := range metrics {
 
@@ -387,6 +400,9 @@ func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) 
 		}
 
 	}
+	// Добавляем данные для аудита в контекст
+	ip := getIPAddress(req)
+	req = WithAuditData(req, metricNames, ip)
 
 	res.WriteHeader(http.StatusOK)
 }

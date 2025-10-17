@@ -10,8 +10,15 @@ import (
 	"sync"
 )
 
-func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string, flagKey *string) {
+func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string, flagKey *string, flagAuditFile *string, flagAuditUrl *string) {
 	defer wg.Done()
+
+	// Создаем менеджер аудита
+	auditManager := NewAuditManager()
+	defer auditManager.Close()
+
+	// Инициализируем наблюдатели аудита
+	initAuditObservers(auditManager, flagAuditFile, flagAuditUrl)
 
 	s := handler.NewServer(storage)
 	sSync := handler.NewServerSync(storage, producer)
@@ -41,6 +48,7 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 	r.Use(repository.GzipMiddleware,
 		logger.LoggingAnswer(logger.Sugar),
 		logger.LoggingRequest(logger.Sugar),
+		AuditMiddleware(auditManager),
 	)
 	r.Route("/", func(r chi.Router) {
 

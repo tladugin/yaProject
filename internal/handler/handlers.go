@@ -403,7 +403,7 @@ func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) 
 		}
 
 	}
-	// Добавляем данные для аудита в контекст
+
 	// Добавляем данные для аудита в контекст и сохраняем обновленный запрос
 	ip := getIPAddress(req)
 	updatedReq := WithAuditData(req, metricNames, ip)

@@ -1,33 +1,11 @@
 package server
 
 import (
-	"context"
-
+	"github.com/tladugin/yaProject.git/internal/handler"
+	"github.com/tladugin/yaProject.git/internal/logger"
 	"net/http"
 	"time"
 )
-
-type contextKey string
-
-const (
-	metricsContextKey = contextKey("metrics")
-	ipContextKey      = contextKey("ip")
-)
-
-// WithAuditData добавляет данные для аудита в контекст
-func WithAuditData(r *http.Request, metrics []string, ip string) *http.Request {
-	ctx := r.Context()
-	ctx = context.WithValue(ctx, metricsContextKey, metrics)
-	ctx = context.WithValue(ctx, ipContextKey, ip)
-	return r.WithContext(ctx)
-}
-
-// GetAuditData получает данные аудита из контекста
-func GetAuditData(r *http.Request) ([]string, string) {
-	metrics, _ := r.Context().Value(metricsContextKey).([]string)
-	ip, _ := r.Context().Value(ipContextKey).(string)
-	return metrics, ip
-}
 
 // AuditMiddleware создает middleware для аудита запросов
 func AuditMiddleware(auditManager *AuditManager) func(http.Handler) http.Handler {
@@ -39,87 +17,70 @@ func AuditMiddleware(auditManager *AuditManager) func(http.Handler) http.Handler
 				return
 			}
 
-			// Создаем канал для сбора метрик
-			metricsChan := make(chan []string, 1)
+			logger.Sugar.Debugf("Audit middleware started for: %s %s", r.Method, r.URL.Path)
 
-			// Оборачиваем ResponseWriter для перехвата данных
-			rw := &auditResponseWriter{
+			// Создаем wrapper для ResponseWriter чтобы перехватить статус
+			rw := &statusRecorder{
 				ResponseWriter: w,
-				metricsChan:    metricsChan,
-				request:        r, // Сохраняем ссылку на запрос
+				status:         http.StatusOK,
 			}
 
 			// Обрабатываем запрос
 			next.ServeHTTP(rw, r)
 
-			// Ждем сбор метрик (асинхронно)
-			go func(req *http.Request) {
-				select {
-				case metrics := <-metricsChan:
-					// Получаем IP адрес
-					ip := getIPAddress(req)
+			logger.Sugar.Debugf("Request completed with status: %d", rw.status)
 
-					// Создаем событие аудита
-					event := AuditEvent{
-						TS:        time.Now().Unix(),
-						Metrics:   metrics,
-						IPAddress: ip,
+			// После обработки проверяем успешность и отправляем аудит
+			if rw.status >= 200 && rw.status < 300 {
+				go func(req *http.Request, status int) {
+					// Получаем данные аудита
+					metrics, ip := handler.GetAuditData(req)
+
+					logger.Sugar.Debugf("Audit data retrieved - Metrics: %v, IP: %s", metrics, ip)
+
+					if len(metrics) > 0 { // Отправляем только если есть метрики
+						// Создаем событие аудита
+						event := AuditEvent{
+							TS:        time.Now().Unix(),
+							Metrics:   metrics,
+							IPAddress: ip,
+						}
+
+						logger.Sugar.Infof("Sending audit event: %+v", event)
+
+						// Отправляем событие наблюдателям
+						auditManager.NotifyAll(event)
+						logger.Sugar.Infof("Audit event sent successfully: %d metrics from %s", len(metrics), ip)
+					} else {
+						logger.Sugar.Warn("No metrics found for audit - event will not be sent")
 					}
 
-					// Отправляем событие наблюдателям
-					auditManager.NotifyAll(event)
-				case <-time.After(1 * time.Second):
-					// Таймаут сбора метрик
-				}
-			}(r) // Передаем оригинальный запрос
+					// Очищаем данные
+					CleanupAuditData(req)
+				}(r, rw.status)
+			} else {
+				// Очищаем данные даже при неуспешном ответе
+				CleanupAuditData(r)
+				logger.Sugar.Debugf("Request failed with status %d, audit skipped", rw.status)
+			}
 		})
 	}
 }
 
-// auditResponseWriter перехватывает данные ответа
-type auditResponseWriter struct {
+// statusRecorder записывает статус ответа
+type statusRecorder struct {
 	http.ResponseWriter
-	metricsChan chan<- []string
-	request     *http.Request
-	wroteHeader bool
+	status int
 }
 
-func (w *auditResponseWriter) WriteHeader(code int) {
-	if !w.wroteHeader {
-		w.wroteHeader = true
-		// Если статус успешный, собираем метрики
-		if code >= 200 && code < 300 {
-			w.collectMetrics()
-		} else {
-			// Для неуспешных ответов отправляем пустой список
-			w.metricsChan <- []string{}
-		}
-	}
-	w.ResponseWriter.WriteHeader(code)
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
 }
 
-func (w *auditResponseWriter) Write(data []byte) (int, error) {
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
+func (r *statusRecorder) Write(data []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
 	}
-	return w.ResponseWriter.Write(data)
-}
-
-func (w *auditResponseWriter) collectMetrics() {
-	// Получаем метрики из контекста запроса
-	metrics, _ := GetAuditData(w.request)
-	w.metricsChan <- metrics
-}
-
-// getIPAddress извлекает реальный IP адрес клиента
-func getIPAddress(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
-	}
-
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		return ip
-	}
-
-	return r.RemoteAddr
+	return r.ResponseWriter.Write(data)
 }

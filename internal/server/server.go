@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string, flagKey *string, flagAuditFile *string, flagAuditUrl *string) {
+func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string, flagKey *string, flagAuditFile *string, flagAuditURL *string) {
 	defer wg.Done()
 
 	// Создаем менеджер аудита
@@ -18,7 +18,7 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 	defer auditManager.Close()
 
 	// Инициализируем наблюдатели аудита
-	initAuditObservers(auditManager, flagAuditFile, flagAuditUrl)
+	initAuditObservers(auditManager, flagAuditFile, flagAuditURL)
 
 	s := handler.NewServer(storage)
 	sSync := handler.NewServerSync(storage, producer)

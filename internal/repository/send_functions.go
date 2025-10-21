@@ -17,6 +17,7 @@ import (
 	"time"
 )
 
+// SendMetric отправляет одиночную метрику на сервер
 func SendMetric(URL string, metricType string, storage *MemStorage, i int, key string) error {
 	// 1. Подготовка метрики
 	var metric models.Metrics
@@ -50,7 +51,7 @@ func SendMetric(URL string, metricType string, storage *MemStorage, i int, key s
 		return fmt.Errorf("compress data error: %w", err)
 	}
 
-	// 4. Нормализация URL
+	// 4. Нормализация URL (добавление протокола если отсутствует)
 	if !strings.HasPrefix(URL, "http://") && !strings.HasPrefix(URL, "https://") {
 		URL = "http://" + URL
 	}
@@ -86,7 +87,7 @@ func SendMetric(URL string, metricType string, storage *MemStorage, i int, key s
 		}
 	}()
 
-	// 7. Проверка ответа
+	// 7. Проверка ответа сервера
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -98,6 +99,7 @@ func SendMetric(URL string, metricType string, storage *MemStorage, i int, key s
 	return nil
 }
 
+// SendMetricsBatch отправляет пачку метрик на сервер
 func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchSize int, key string, pollCounter int64) error {
 	// 1. Подготовка URL
 	if !strings.HasPrefix(URL, "http://") && !strings.HasPrefix(URL, "https://") {
@@ -109,7 +111,7 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 	switch metricType {
 	case "gauge":
 		if len(storage.GaugeSlice()) == 0 {
-			return nil
+			return nil // Нет метрик для отправки
 		}
 
 		for i := 0; i < batchSize; i++ {
@@ -122,7 +124,7 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 		}
 	case "counter":
 		if len(storage.CounterSlice()) == 0 {
-			return nil
+			return nil // Нет метрик для отправки
 		}
 
 		for i := 0; i < batchSize; i++ {
@@ -175,7 +177,7 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 	}
 	defer resp.Body.Close()
 
-	// 8. Проверка ответа
+	// 8. Проверка ответа сервера
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -187,6 +189,7 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 	return nil
 }
 
+// compressData сжимает данные с использованием gzip
 func compressData(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
@@ -199,6 +202,7 @@ func compressData(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// isRetriableError проверяет, является ли ошибка временной и можно ли повторить запрос
 func isRetriableError(err error) bool {
 	// Считаем ошибку временной, если это:
 	// - ошибка сети/соединения
@@ -208,16 +212,20 @@ func isRetriableError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
+// SendWithRetry отправляет метрики с повторными попытками при временных ошибках
 func SendWithRetry(url string, storage *MemStorage, key string, pollCounter int64) error {
 	maxRetries := 3
 	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
 
+	// Цикл повторных попыток
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Задержка перед повторной попыткой (кроме первой)
 		if attempt > 0 {
 			time.Sleep(retryDelays[attempt-1])
 		}
 
+		// Отправка gauge метрик
 		errG := SendMetricsBatch(url, "gauge", storage, len(storage.gaugeSlice), key, pollCounter)
 		if errG != nil {
 			lastErr = errG
@@ -225,15 +233,17 @@ func SendWithRetry(url string, storage *MemStorage, key string, pollCounter int6
 
 		lastErr = errG
 
+		// Отправка counter метрик
 		errC := SendMetricsBatch(url, "counter", storage, len(storage.counterSlice), key, pollCounter)
 		if errC == nil {
-			return nil
+			return nil // Успешная отправка
 		}
 
 		lastErr = errC
 
+		// Проверяем, стоит ли повторять запрос
 		if !isRetriableError(errG) || !isRetriableError(errC) {
-			break
+			break // Не повторяем для неустранимых ошибок
 		}
 	}
 

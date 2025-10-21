@@ -14,73 +14,87 @@ import (
 	"syscall"
 )
 
+// WaitForShutdownSignal ожидает сигналов завершения работы приложения
+// Обрабатывает как graceful shutdown (SIGTERM, SIGINT), так и фатальные ошибки
 func WaitForShutdownSignal(stopPoll, stopReport chan struct{}, fatalErrors chan error, sugar *zap.SugaredLogger) {
+	// Канал для получения сигналов ОС
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
 	select {
 	case <-shutdown:
-		// Останавливаем горутины
+		// Graceful shutdown: закрываем каналы для остановки горутин
 		close(stopPoll)
 		close(stopReport)
 		sugar.Infoln("Shutting down...")
 
 	case err := <-fatalErrors:
+		// Фатальная ошибка: завершаем работу приложения
 		sugar.Fatal("Fatal error occurred: ", err)
 	}
-
 }
 
+// CollectRuntimeMetrics собирает метрики runtime Go и сохраняет их в хранилище
+// Включает статистику памяти, сборки мусора и производительности
 func CollectRuntimeMetrics(storage *repository.MemStorage) {
-
+	// Получаем статистику runtime Go
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
+	// Словарь метрик runtime с их значениями
 	metrics := map[string]float64{
-		"Alloc":         float64(m.Alloc),
-		"BuckHashSys":   float64(m.BuckHashSys),
-		"Frees":         float64(m.Frees),
-		"GCCPUFraction": float64(m.GCCPUFraction),
-		"GCSys":         float64(m.GCSys),
-		"HeapAlloc":     float64(m.HeapAlloc),
-		"HeapIdle":      float64(m.HeapIdle),
-		"HeapInuse":     float64(m.HeapInuse),
-		"HeapObjects":   float64(m.HeapObjects),
-		"HeapReleased":  float64(m.HeapReleased),
-		"HeapSys":       float64(m.HeapSys),
-		"LastGC":        float64(m.LastGC),
-		"Lookups":       float64(m.Lookups),
-		"MCacheInuse":   float64(m.MCacheInuse),
-		"MCacheSys":     float64(m.MCacheSys),
-		"MSpanInuse":    float64(m.MSpanInuse),
-		"MSpanSys":      float64(m.MSpanSys),
-		"Mallocs":       float64(m.Mallocs),
-		"NextGC":        float64(m.NextGC),
-		"NumForcedGC":   float64(m.NumForcedGC),
-		"NumGC":         float64(m.NumGC),
-		"OtherSys":      float64(m.OtherSys),
-		"PauseTotalNs":  float64(m.PauseTotalNs),
-		"StackInuse":    float64(m.StackInuse),
-		"StackSys":      float64(m.StackSys),
-		"Sys":           float64(m.Sys),
-		"TotalAlloc":    float64(m.TotalAlloc),
-		"RandomValue":   rand.Float64(),
+		"Alloc":         float64(m.Alloc),         // Выделено байт кучи
+		"BuckHashSys":   float64(m.BuckHashSys),   // Байты в хэш-таблицах
+		"Frees":         float64(m.Frees),         // Количество освобождений памяти
+		"GCCPUFraction": float64(m.GCCPUFraction), // Доля CPU времени на GC
+		"GCSys":         float64(m.GCSys),         // Байты в системах GC
+		"HeapAlloc":     float64(m.HeapAlloc),     // Байты выделено в куче
+		"HeapIdle":      float64(m.HeapIdle),      // Байты в неиспользуемой куче
+		"HeapInuse":     float64(m.HeapInuse),     // Байты в используемой куче
+		"HeapObjects":   float64(m.HeapObjects),   // Количество объектов в куче
+		"HeapReleased":  float64(m.HeapReleased),  // Байты возвращенные ОС
+		"HeapSys":       float64(m.HeapSys),       // Байты полученные от ОС для кучи
+		"LastGC":        float64(m.LastGC),        // Время последней GC (наносекунды)
+		"Lookups":       float64(m.Lookups),       // Количество поисков указателей
+		"MCacheInuse":   float64(m.MCacheInuse),   // Байты в локальных кэшах
+		"MCacheSys":     float64(m.MCacheSys),     // Байты полученные для кэшей
+		"MSpanInuse":    float64(m.MSpanInuse),    // Байты в span структурах
+		"MSpanSys":      float64(m.MSpanSys),      // Байты полученные для span
+		"Mallocs":       float64(m.Mallocs),       // Количество выделений памяти
+		"NextGC":        float64(m.NextGC),        // Цель следующей GC
+		"NumForcedGC":   float64(m.NumForcedGC),   // Количество принудительных GC
+		"NumGC":         float64(m.NumGC),         // Количество выполненных GC
+		"OtherSys":      float64(m.OtherSys),      // Байты в других системах
+		"PauseTotalNs":  float64(m.PauseTotalNs),  // Суммарное время пауз GC (нс)
+		"StackInuse":    float64(m.StackInuse),    // Байты в стеках
+		"StackSys":      float64(m.StackSys),      // Байты полученные для стеков
+		"Sys":           float64(m.Sys),           // Всего байт получено от ОС
+		"TotalAlloc":    float64(m.TotalAlloc),    // Всего байт выделено за время работы
+		"RandomValue":   rand.Float64(),           // Случайное значение для тестирования
 	}
 
+	// Сохраняем все метрики в хранилище
 	for name, value := range metrics {
 		storage.AddGauge(name, value)
 	}
 }
 
+// CollectSystemMetrics собирает системные метрики (память, CPU) и сохраняет их в хранилище
+// Использует библиотеку gopsutil для получения системной информации
 func CollectSystemMetrics(storage *repository.MemStorage) {
+	// Получаем информацию о виртуальной памяти
 	if v, err := mem.VirtualMemory(); err == nil {
-		storage.AddGauge("TotalMemory", float64(v.Total))
-		storage.AddGauge("FreeMemory", float64(v.Free))
+		storage.AddGauge("TotalMemory", float64(v.Total)) // Общий объем памяти
+		storage.AddGauge("FreeMemory", float64(v.Free))   // Свободный объем памяти
 	}
+	// Если произошла ошибка - метрики просто не будут добавлены
 
+	// Получаем загрузку CPU по ядрам
 	if percents, err := cpu.Percent(0, true); err == nil {
+		// Для каждого CPU ядра сохраняем его утилизацию
 		for i, percent := range percents {
 			storage.AddGauge(fmt.Sprintf("CPUutilization%d", i+1), percent)
 		}
 	}
+	// Если произошла ошибка - метрики CPU не будут добавлены
 }

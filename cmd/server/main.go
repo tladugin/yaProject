@@ -21,7 +21,7 @@ func main() {
 	flags := parseFlags()
 
 	// Запуск pprof сервера для профилирования если включен
-	if flags.flagUsePprof == true {
+	if flags.flagUsePprof {
 		go func() {
 			fmt.Println("Starting pprof server on :6060")
 			// Запуск HTTP сервера для сбора профилей производительности

@@ -2,17 +2,19 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/tladugin/yaProject.git/internal/agent"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
+	"golang.org/x/sync/errgroup"
+	_ "net/http/pprof"
 )
 
 func main() {
@@ -32,6 +34,15 @@ func main() {
 	// Парсинг флагов командной строки
 	flags := agent.ParseFlags()
 
+	if flags.FlagUsePprof {
+		go func() {
+			fmt.Println("Starting pprof server on :6060")
+			// Запуск HTTP сервера для сбора профилей производительности
+			if err := http.ListenAndServe(":6060", nil); err != nil {
+				logger.Sugar.Error("Pprof server error: ", err)
+			}
+		}()
+	}
 	// Создание пула воркеров для ограничения скорости отправки запросов
 	workerPool, err := agent.NewWorkerPool(flags.FlagRateLimit)
 	if err != nil {

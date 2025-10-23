@@ -14,6 +14,7 @@ type Flags struct {
 	FlagPollIntervalTime   string
 	FlagKey                string
 	FlagRateLimit          int
+	FlagUsePprof           bool
 }
 
 // parseFlags обрабатывает аргументы командной строки
@@ -27,6 +28,8 @@ func ParseFlags() *Flags {
 	flag.StringVar(&f.FlagPollIntervalTime, "p", "2", "poll interval")
 	flag.StringVar(&f.FlagKey, "k", "", "key")
 	flag.IntVar(&f.FlagRateLimit, "l", 1, "rate limit (max concurrent requests)")
+	flag.BoolVar(&f.FlagUsePprof, "pprof", false, "use benchmark")
+
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
 

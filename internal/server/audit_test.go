@@ -100,9 +100,9 @@ func TestCleanupAuditData(t *testing.T) {
 	auditMutex.Unlock()
 
 	// Проверяем что данные есть
-	auditMutex.RLock()
+	auditMutex.Lock()
 	_, exists := auditDataMap[req]
-	auditMutex.RUnlock()
+	auditMutex.Unlock()
 
 	if !exists {
 		t.Fatal("Data should exist before cleanup")
@@ -112,9 +112,9 @@ func TestCleanupAuditData(t *testing.T) {
 	CleanupAuditData(req)
 
 	// Проверяем что данные удалены
-	auditMutex.RLock()
+	auditMutex.Lock()
 	_, exists = auditDataMap[req]
-	auditMutex.RUnlock()
+	auditMutex.Unlock()
 
 	if exists {
 		t.Error("Data should be cleaned up")
@@ -300,9 +300,9 @@ func TestConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	// Проверяем что карта пуста
-	auditMutex.RLock()
+	auditMutex.Lock()
 	mapSize := len(auditDataMap)
-	auditMutex.RUnlock()
+	auditMutex.Unlock()
 
 	if mapSize != 0 {
 		t.Errorf("Map should be empty, but has %d elements", mapSize)

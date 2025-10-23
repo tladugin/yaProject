@@ -22,7 +22,7 @@ type AuditData struct {
 
 var (
 	auditDataMap = make(map[*http.Request]*AuditData)
-	auditMutex   *sync.Mutex
+	auditMutex   = &sync.Mutex{} // Инициализированный указатель
 )
 
 // Observer интерфейс для наблюдателей аудита
@@ -47,8 +47,39 @@ type HTTPObserver struct {
 // AuditManager управляет наблюдателями
 type AuditManager struct {
 	observers []Observer
-	mu        *sync.RWMutex
+	mu        *sync.Mutex
 	enabled   bool
+}
+
+// NewAuditManager создает новый менеджер аудита
+func NewAuditManager(enabled bool) *AuditManager {
+	return &AuditManager{
+		observers: make([]Observer, 0),
+		mu:        &sync.Mutex{}, // Инициализированный указатель
+		enabled:   enabled,
+	}
+}
+
+// NewFileObserver создает нового файлового наблюдателя
+func NewFileObserver(filename string) (*FileObserver, error) {
+	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FileObserver{
+		file: file,
+		mu:   &sync.Mutex{}, // Инициализированный указатель
+	}, nil
+}
+
+// NewHTTPObserver создает нового HTTP наблюдателя
+func NewHTTPObserver(url string) *HTTPObserver {
+	return &HTTPObserver{
+		url:    url,
+		client: &http.Client{},
+		mu:     &sync.Mutex{}, // Инициализированный указатель
+	}
 }
 
 // CleanupAuditData очищает данные аудита после обработки

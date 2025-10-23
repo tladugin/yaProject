@@ -33,14 +33,6 @@ func initAuditObservers(manager *AuditManager, flagAuditFile, flagAuditURL *stri
 	}
 }
 
-// NewAuditManager создает новый менеджер аудита
-func NewAuditManager() *AuditManager {
-	return &AuditManager{
-		observers: make([]Observer, 0),
-		enabled:   false,
-	}
-}
-
 // AddObserver добавляет наблюдателя
 func (m *AuditManager) AddObserver(observer Observer) {
 	m.mu.Lock()
@@ -52,8 +44,8 @@ func (m *AuditManager) AddObserver(observer Observer) {
 
 // NotifyAll уведомляет всех наблюдателей о событии
 func (m *AuditManager) NotifyAll(event AuditEvent) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if !m.enabled {
 		return
@@ -91,7 +83,7 @@ func (m *AuditManager) Close() {
 
 // IsEnabled проверяет включен ли аудит
 func (m *AuditManager) IsEnabled() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.enabled
 }

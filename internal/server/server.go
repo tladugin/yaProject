@@ -15,7 +15,8 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 	defer wg.Done()
 
 	// Создаем менеджер аудита для отслеживания операций
-	auditManager := NewAuditManager()
+
+	auditManager := NewAuditManager(true)
 	defer auditManager.Close()
 
 	// Инициализируем наблюдатели аудита (файловый и/или HTTP)

@@ -4,22 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"os"
-	"time"
 )
-
-// NewFileObserver создает нового файлового наблюдателя
-func NewFileObserver(filePath string) (*FileObserver, error) {
-	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open audit file: %w", err)
-	}
-
-	return &FileObserver{
-		file: file,
-	}, nil
-}
 
 // Notify записывает событие в файл
 func (o *FileObserver) Notify(event AuditEvent) error {
@@ -49,16 +34,6 @@ func (o *FileObserver) Close() error {
 		return o.file.Close()
 	}
 	return nil
-}
-
-// NewHTTPObserver создает нового HTTP наблюдателя
-func NewHTTPObserver(url string) *HTTPObserver {
-	return &HTTPObserver{
-		url: url,
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-	}
 }
 
 // Notify отправляет событие по HTTP

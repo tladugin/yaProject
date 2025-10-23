@@ -1,42 +1,102 @@
 package agent
 
 import (
+	"context"
 	"fmt"
+	"math/rand"
+	"runtime"
+	"time"
+
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+	"go.uber.org/zap"
 
 	"github.com/tladugin/yaProject.git/internal/repository"
-	"go.uber.org/zap"
-	"math/rand"
-	"os"
-	"os/signal"
-	"runtime"
-	"syscall"
 )
 
-// WaitForShutdownSignal ожидает сигналов завершения работы приложения
-// Обрабатывает как graceful shutdown (SIGTERM, SIGINT), так и фатальные ошибки
-func WaitForShutdownSignal(stopPoll, stopReport chan struct{}, fatalErrors chan error, sugar *zap.SugaredLogger) {
-	// Канал для получения сигналов ОС
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+// CollectRuntimeMetricsWithContext собирает runtime метрики с учетом контекста
+func CollectRuntimeMetricsWithContext(ctx context.Context, storage *repository.MemStorage, pollDuration time.Duration, sugar *zap.SugaredLogger, pollCounter *int64) error {
+	sugar.Info("Starting runtime metrics collection")
+	defer sugar.Info("Runtime metrics collection stopped")
 
-	select {
-	case <-shutdown:
-		// Graceful shutdown: закрываем каналы для остановки горутин
-		close(stopPoll)
-		close(stopReport)
-		sugar.Infoln("Shutting down...")
+	ticker := time.NewTicker(pollDuration)
+	defer ticker.Stop()
 
-	case err := <-fatalErrors:
-		// Фатальная ошибка: завершаем работу приложения
-		sugar.Fatal("Fatal error occurred: ", err)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			sugar.Debug("Updating runtime metrics...")
+			collectRuntimeMetrics(storage)
+			(*pollCounter)++ // Увеличение счетчика опросов
+		}
 	}
 }
 
-// CollectRuntimeMetrics собирает метрики runtime Go и сохраняет их в хранилище
-// Включает статистику памяти, сборки мусора и производительности
-func CollectRuntimeMetrics(storage *repository.MemStorage) {
+// CollectSystemMetricsWithContext собирает системные метрики с учетом контекста
+func CollectSystemMetricsWithContext(ctx context.Context, storage *repository.MemStorage, pollDuration time.Duration, sugar *zap.SugaredLogger) error {
+	sugar.Info("Starting system metrics collection")
+	defer sugar.Info("System metrics collection stopped")
+
+	ticker := time.NewTicker(pollDuration)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			sugar.Debug("Updating system metrics...")
+			collectSystemMetrics(storage)
+		}
+	}
+}
+
+// ReportMetricsWithContext отправляет метрики на сервер с учетом контекста
+func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64) error {
+	sugar.Info("Starting metrics reporting")
+	defer sugar.Info("Metrics reporting stopped")
+
+	ticker := time.NewTicker(reportDuration)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			sugar.Debug("Sending metrics...")
+
+			// Используем канал для синхронизации отправки
+			done := make(chan error, 1)
+
+			// Отправка метрик через пул воркеров с ограничением скорости
+			workerPool.Submit(func() {
+				err := repository.SendWithRetry(serverURL+"/updates", storage, key, *pollCounter)
+				done <- err
+			})
+
+			// Ждем завершения отправки или отмены контекста
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case err := <-done:
+				if err != nil {
+					sugar.Errorf("Error sending metrics: %v", err)
+					// Не возвращаем ошибку, продолжаем работу
+				} else {
+					// Сброс счетчика опросов после успешной отправки
+					*pollCounter = 0
+					sugar.Debug("Metrics sent successfully")
+				}
+			}
+		}
+	}
+}
+
+// collectRuntimeMetrics собирает метрики runtime Go и сохраняет их в хранилище
+func collectRuntimeMetrics(storage *repository.MemStorage) {
 	// Получаем статистику runtime Go
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -79,9 +139,8 @@ func CollectRuntimeMetrics(storage *repository.MemStorage) {
 	}
 }
 
-// CollectSystemMetrics собирает системные метрики (память, CPU) и сохраняет их в хранилище
-// Использует библиотеку gopsutil для получения системной информации
-func CollectSystemMetrics(storage *repository.MemStorage) {
+// collectSystemMetrics собирает системные метрики (память, CPU) и сохраняет их в хранилище
+func collectSystemMetrics(storage *repository.MemStorage) {
 	// Получаем информацию о виртуальной памяти
 	if v, err := mem.VirtualMemory(); err == nil {
 		storage.AddGauge("TotalMemory", float64(v.Total)) // Общий объем памяти

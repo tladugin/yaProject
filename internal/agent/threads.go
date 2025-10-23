@@ -4,7 +4,7 @@ import "sync"
 
 type WorkerPool struct {
 	taskQueue chan func()
-	wg        sync.WaitGroup
+	wg        *sync.WaitGroup
 }
 
 func NewWorkerPool(maxWorkers int) *WorkerPool {

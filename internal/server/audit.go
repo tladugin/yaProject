@@ -22,7 +22,7 @@ type AuditData struct {
 
 var (
 	auditDataMap = make(map[*http.Request]*AuditData)
-	auditMutex   sync.RWMutex
+	auditMutex   *sync.Mutex
 )
 
 // Observer интерфейс для наблюдателей аудита
@@ -34,20 +34,20 @@ type Observer interface {
 // FileObserver записывает события в файл
 type FileObserver struct {
 	file *os.File
-	mu   sync.Mutex
+	mu   *sync.Mutex
 }
 
 // HTTPObserver отправляет события по HTTP
 type HTTPObserver struct {
 	url    string
 	client *http.Client
-	mu     sync.Mutex
+	mu     *sync.Mutex
 }
 
 // AuditManager управляет наблюдателями
 type AuditManager struct {
 	observers []Observer
-	mu        sync.RWMutex
+	mu        *sync.RWMutex
 	enabled   bool
 }
 

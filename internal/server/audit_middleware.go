@@ -31,7 +31,7 @@ func AuditMiddleware(auditManager *AuditManager) func(http.Handler) http.Handler
 			logger.Sugar.Debugf("Request completed with status: %d", rw.status)
 
 			// После обработки проверяем успешность и отправляем аудит
-			if rw.status >= 200 && rw.status < 300 {
+			if rw.status >= http.StatusOK && rw.status < http.StatusBadRequest {
 				go func(req *http.Request, status int) {
 					// Получаем данные аудита
 					metrics, ip := handler.GetAuditData(req)

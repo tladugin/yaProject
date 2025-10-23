@@ -72,8 +72,10 @@ func BenchmarkHandlerUpdatesBatch(b *testing.B) {
 		}
 	}
 
-	body, _ := json.Marshal(metrics)
-
+	body, err := json.Marshal(metrics)
+	if err != nil {
+		b.Fatalf("Failed to marshal: %v", err)
+	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest("POST", "/updates", bytes.NewReader(body))

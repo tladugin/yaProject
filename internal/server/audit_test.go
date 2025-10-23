@@ -212,7 +212,7 @@ func TestHTTPObserver(t *testing.T) {
 
 // TestAuditManager тестирует менеджер аудита
 func TestAuditManager(t *testing.T) {
-	manager := NewAuditManager()
+	manager := NewAuditManager(true)
 	defer manager.Close()
 
 	// Тестируем уведомление без наблюдателей (не должно падать)
@@ -374,7 +374,7 @@ func TestHTTPObserverClose(t *testing.T) {
 
 // TestAuditManagerWithObservers тестирует менеджер с наблюдателями
 func TestAuditManagerWithObservers(t *testing.T) {
-	manager := NewAuditManager()
+	manager := NewAuditManager(true)
 	defer manager.Close()
 
 	// Добавляем файлового наблюдателя

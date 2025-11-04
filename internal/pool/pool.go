@@ -10,15 +10,15 @@ type Resetter interface {
 }
 
 // Pool - generic-пул для хранения объектов с методом Reset()
-type Pool[T any] struct {
+type Pool[T Resetter] struct {
 	pool sync.Pool
 }
 
 // New создает и возвращает указатель на новую структуру Pool
-// T должен быть указателем на тип с методом Reset()
 func New[T Resetter]() *Pool[T] {
 	p := &Pool[T]{}
 	p.pool.New = func() interface{} {
+		// Создаем нулевое значение типа T
 		var zero T
 		return zero
 	}
@@ -32,6 +32,6 @@ func (p *Pool[T]) Get() T {
 
 // Put помещает объект в пул, предварительно сбрасывая его состояние
 func (p *Pool[T]) Put(x T) {
-	x.Reset() // Теперь это работает, так как x имеет метод Reset()
+	x.Reset() // Теперь компилятор знает, что x имеет метод Reset()
 	p.pool.Put(x)
 }

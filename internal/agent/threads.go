@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"github.com/tladugin/yaProject.git/internal/pool"
 	"sync"
 	"time"
 )
@@ -19,13 +18,12 @@ type Task struct {
 	Error    error
 }
 
-// WorkerPool представляет пул воркеров с пулом объектов
+// WorkerPool представляет пул воркеров с поддержкой функций
 type WorkerPool struct {
 	workers   int
-	taskQueue chan *Task
+	taskQueue chan func() // Изменено на func()
 	wg        sync.WaitGroup
 	once      sync.Once
-	taskPool  *pool.Pool[*Task] // Изменено на *Task (указатель)
 }
 
 // NewWorkerPool создает новый пул воркеров
@@ -36,8 +34,7 @@ func NewWorkerPool(workers int) (*WorkerPool, error) {
 
 	pool := &WorkerPool{
 		workers:   workers,
-		taskQueue: make(chan *Task, workers*10),
-		taskPool:  pool.New[*Task](), // Создаем пул для указателей на Task
+		taskQueue: make(chan func(), workers*10), // Буферизованный канал для функций
 	}
 
 	// Запускаем воркеры
@@ -55,68 +52,31 @@ func (p *WorkerPool) worker() {
 
 	for task := range p.taskQueue {
 		if task != nil {
-			// Выполняем задачу
-			p.processTask(task)
-
-			// Возвращаем задачу в пул после выполнения
-			p.taskPool.Put(task)
+			task() // Просто выполняем функцию
 		}
 	}
 }
 
-// processTask обрабатывает одну задачу
-func (p *WorkerPool) processTask(task *Task) {
-	// Ваша логика обработки HTTP запросов
-	// Например:
-	// result, err := p.makeRequest(task)
-	// task.Result = result
-	// task.Error = err
-	// task.Attempts++
-}
-
-// SubmitTask добавляет новую задачу в очередь
-func (p *WorkerPool) SubmitTask(url, method string, body []byte) {
+// Submit добавляет задачу-функцию в очередь
+func (p *WorkerPool) Submit(task func()) {
 	if p == nil || p.taskQueue == nil {
 		return
 	}
 
-	// Берем Task из пула (указатель)
-	task := p.taskPool.Get()
-
-	// Заполняем поля задачи
-	task.URL = url
-	task.Method = method
-	task.Body = body
-	task.Attempts = 0
-
-	// Отправляем задачу в очередь воркеров
 	select {
 	case p.taskQueue <- task:
 		// Задача добавлена в очередь
 	default:
-		// Если очередь заполнена, возвращаем задачу в пул
-		p.taskPool.Put(task)
+		// Если очередь заполнена, задача будет пропущена
 	}
 }
 
-// Submit добавляет готовую задачу в очередь
-func (p *WorkerPool) Submit(task *Task) {
-	if p == nil || p.taskQueue == nil || task == nil {
-		return
-	}
-
-	select {
-	case p.taskQueue <- task:
-		// Задача добавлена в очередь
-	default:
-		// Если очередь заполнена, возвращаем задачу в пул
-		p.taskPool.Put(task)
-	}
-}
-
-// CreateTask создает новую задачу (использует пул)
-func (p *WorkerPool) CreateTask() *Task {
-	return p.taskPool.Get()
+// SubmitTask добавляет HTTP задачу в очередь (для обратной совместимости)
+func (p *WorkerPool) SubmitTask(url, method string, body []byte) {
+	p.Submit(func() {
+		// Здесь ваша логика отправки HTTP запроса
+		// repository.SendWithRetry(url, body, method, ...)
+	})
 }
 
 // Shutdown останавливает пул воркеров

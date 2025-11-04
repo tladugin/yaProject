@@ -26,8 +26,6 @@ func main() {
 		}
 	}
 
-	fmt.Printf("Scanning directory: %s\n", rootDir)
-
 	if err := run(rootDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -60,8 +58,6 @@ func run(rootDir string) error {
 	// Собираем информацию о всех пакетах
 	packages := make(map[string]*PackageInfo)
 
-	fmt.Printf("Starting directory scan from: %s\n", rootDir)
-
 	err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -73,23 +69,18 @@ func run(rootDir string) error {
 
 		// Пропускаем директории, начинающиеся с . (например, .git, .vscode)
 		if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
-			fmt.Printf("Skipping hidden directory: %s\n", path)
 			return filepath.SkipDir
 		}
 
 		// Пропускаем директорию cmd/reset чтобы не обрабатывать саму утилиту
 		if strings.Contains(path, "cmd/reset") {
-			fmt.Printf("Skipping reset utility directory: %s\n", path)
 			return filepath.SkipDir
 		}
 
 		// Пропускаем vendor и testdata
 		if d.Name() == "vendor" || d.Name() == "testdata" {
-			fmt.Printf("Skipping directory: %s\n", path)
 			return filepath.SkipDir
 		}
-
-		fmt.Printf("Scanning package: %s\n", path)
 
 		// Анализируем Go файлы в директории
 		fset := token.NewFileSet()
@@ -100,13 +91,10 @@ func run(rootDir string) error {
 		}, parser.ParseComments)
 		if err != nil {
 			// Если это не Go пакет, пропускаем
-			fmt.Printf("  Not a Go package or error: %v\n", err)
 			return nil
 		}
 
 		for pkgName, pkg := range pkgs {
-			fmt.Printf("  Found package: %s (%d files)\n", pkgName, len(pkg.Files))
-
 			info := &PackageInfo{
 				Name:    pkgName,
 				Path:    path,
@@ -122,12 +110,6 @@ func run(rootDir string) error {
 
 			if len(info.Structs) > 0 {
 				packages[path] = info
-				fmt.Printf("  Found %d resetable structs in package %s\n", len(info.Structs), pkgName)
-				for _, s := range info.Structs {
-					fmt.Printf("    - %s\n", s.Name)
-				}
-			} else {
-				fmt.Printf("  No resetable structs found in package %s\n", pkgName)
 			}
 		}
 
@@ -148,7 +130,7 @@ func run(rootDir string) error {
 		if err := pkgInfo.generateResetFile(); err != nil {
 			return fmt.Errorf("generating reset file for %s: %w", path, err)
 		}
-		fmt.Printf("✓ Generated reset.gen.go for package %s with %d methods\n",
+		fmt.Printf("Generated reset.gen.go for package %s with %d methods\n",
 			pkgInfo.Name, len(pkgInfo.Structs))
 	}
 
@@ -178,8 +160,7 @@ type FieldInfo struct {
 }
 
 func (pkg *PackageInfo) findResetableStructs() error {
-	for filename, file := range pkg.Package.Files {
-		fmt.Printf("    Analyzing file: %s\n", filepath.Base(filename))
+	for _, file := range pkg.Package.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			switch x := n.(type) {
 			case *ast.GenDecl:
@@ -193,7 +174,6 @@ func (pkg *PackageInfo) findResetableStructs() error {
 
 						// Проверяем комментарий generate:reset
 						if hasGenerateResetComment(x) {
-							fmt.Printf("      Found resetable struct: %s\n", typeSpec.Name.Name)
 							structInfo := StructInfo{
 								Name:   typeSpec.Name.Name,
 								Fields: pkg.extractFieldInfo(structType),
@@ -216,7 +196,6 @@ func hasGenerateResetComment(decl *ast.GenDecl) bool {
 
 	for _, comment := range decl.Doc.List {
 		if strings.Contains(comment.Text, "generate:reset") {
-			fmt.Printf("      Found generate:reset comment: %s\n", comment.Text)
 			return true
 		}
 	}
@@ -257,7 +236,7 @@ func (pkg *PackageInfo) analyzeType(expr ast.Expr) (typeName string, isPointer, 
 		isStruct = isBuiltinStructType(typeName)
 
 	case *ast.StarExpr:
-		typeName, isPointer, isSlice, isMap, isStruct = pkg.analyzeType(t.X)
+		typeName, _, isSlice, isMap, isStruct = pkg.analyzeType(t.X)
 		isPointer = true
 
 	case *ast.ArrayType:
@@ -268,7 +247,7 @@ func (pkg *PackageInfo) analyzeType(expr ast.Expr) (typeName string, isPointer, 
 	case *ast.MapType:
 		keyType, _, _, _, _ := pkg.analyzeType(t.Key)
 		valueType, _, _, _, _ := pkg.analyzeType(t.Value)
-		typeName = fmt.Sprintf("map[%s]%s", keyType, valueType)
+		typeName = "map[" + keyType + "]" + valueType
 		isMap = true
 
 	case *ast.SelectorExpr:
@@ -324,7 +303,7 @@ func (pkg *PackageInfo) generateResetFile() error {
 func (pkg *PackageInfo) generateResetMethod(structInfo StructInfo) string {
 	var buf bytes.Buffer
 
-	buf.WriteString(fmt.Sprintf("func (rs *%s) Reset() {\n", structInfo.Name))
+	buf.WriteString("func (rs *" + structInfo.Name + ") Reset() {\n")
 	buf.WriteString("    if rs == nil {\n")
 	buf.WriteString("        return\n")
 	buf.WriteString("    }\n\n")
@@ -342,34 +321,34 @@ func (pkg *PackageInfo) generateFieldReset(field FieldInfo) string {
 
 	switch {
 	case field.IsSlice:
-		buf.WriteString(fmt.Sprintf("    rs.%s = rs.%s[:0]\n", field.Name, field.Name))
+		buf.WriteString("    rs." + field.Name + " = rs." + field.Name + "[:0]\n")
 
 	case field.IsMap:
-		buf.WriteString(fmt.Sprintf("    clear(rs.%s)\n", field.Name))
+		buf.WriteString("    clear(rs." + field.Name + ")\n")
 
 	case field.IsPointer && field.IsStruct:
 		// Для указателей на структуры проверяем наличие метода Reset
-		buf.WriteString(fmt.Sprintf("    if rs.%s != nil {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("        if resetter, ok := interface{}(rs.%s).(interface{ Reset() }); ok {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("            resetter.Reset()\n"))
-		buf.WriteString(fmt.Sprintf("        }\n"))
-		buf.WriteString(fmt.Sprintf("    }\n"))
+		buf.WriteString("    if rs." + field.Name + " != nil {\n")
+		buf.WriteString("        if resetter, ok := interface{}(rs." + field.Name + ").(interface{ Reset() }); ok {\n")
+		buf.WriteString("            resetter.Reset()\n")
+		buf.WriteString("        }\n")
+		buf.WriteString("    }\n")
 
 	case field.IsPointer:
 		// Для указателей на примитивы сбрасываем значение
-		buf.WriteString(fmt.Sprintf("    if rs.%s != nil {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("        *rs.%s = %s\n", field.Name, getZeroValue(field.Type)))
-		buf.WriteString(fmt.Sprintf("    }\n"))
+		buf.WriteString("    if rs." + field.Name + " != nil {\n")
+		buf.WriteString("        *rs." + field.Name + " = " + getZeroValue(field.Type) + "\n")
+		buf.WriteString("    }\n")
 
 	case field.IsStruct:
 		// Для вложенных структур вызываем Reset если есть
-		buf.WriteString(fmt.Sprintf("    if resetter, ok := interface{}(&rs.%s).(interface{ Reset() }); ok {\n", field.Name))
-		buf.WriteString(fmt.Sprintf("        resetter.Reset()\n"))
-		buf.WriteString(fmt.Sprintf("    }\n"))
+		buf.WriteString("    if resetter, ok := interface{}(&rs." + field.Name + ").(interface{ Reset() }); ok {\n")
+		buf.WriteString("        resetter.Reset()\n")
+		buf.WriteString("    }\n")
 
 	default:
 		// Для примитивных типов
-		buf.WriteString(fmt.Sprintf("    rs.%s = %s\n", field.Name, getZeroValue(field.Type)))
+		buf.WriteString("    rs." + field.Name + " = " + getZeroValue(field.Type) + "\n")
 	}
 
 	return buf.String()

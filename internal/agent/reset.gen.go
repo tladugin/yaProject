@@ -17,4 +17,5 @@ func (rs *Task) Reset() {
 	}
 	rs.Result = nil
 	rs.Error = nil
+	rs.Fn = nil
 }

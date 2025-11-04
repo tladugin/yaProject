@@ -280,8 +280,23 @@ func (pkg *PackageInfo) analyzeType(expr ast.Expr) (typeName string, isPointer, 
 		typeName = pkgName + "." + t.Sel.Name
 		isStruct = true // Предполагаем, что это структура
 
+	case *ast.InterfaceType:
+		typeName = "interface{}"
+
+	case *ast.ChanType:
+		typeName = "chan"
+		if t.Dir == ast.SEND {
+			typeName = "chan<-"
+		} else if t.Dir == ast.RECV {
+			typeName = "<-chan"
+		}
+
+	case *ast.FuncType:
+		typeName = "func"
+
 	default:
-		typeName = fmt.Sprintf("%T", t)
+		// Для неизвестных типов просто возвращаем строковое представление
+		typeName = "unknown"
 	}
 
 	return
@@ -371,7 +386,7 @@ func (pkg *PackageInfo) generateFieldReset(field FieldInfo) string {
 		buf.WriteString("    }\n")
 
 	default:
-		// Для примитивных типов
+		// Для примитивных типов и специальных случаев
 		buf.WriteString("    rs." + field.Name + " = " + getZeroValue(field.Type) + "\n")
 	}
 
@@ -388,7 +403,29 @@ func getZeroValue(typeName string) string {
 		return `""`
 	case "bool":
 		return "false"
+	case "interface{}":
+		return "nil"
+	case "error":
+		return "nil"
+	case "time.Duration":
+		return "0"
 	default:
+		// Для неизвестных типов возвращаем nil или zero value
+		if strings.HasPrefix(typeName, "[]") {
+			return "nil"
+		}
+		if strings.HasPrefix(typeName, "map[") {
+			return "nil"
+		}
+		if strings.HasPrefix(typeName, "*") {
+			return "nil"
+		}
+		if strings.HasPrefix(typeName, "chan") {
+			return "nil"
+		}
+		if strings.HasPrefix(typeName, "func") {
+			return "nil"
+		}
 		return typeName + "{}"
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// generate:reset
 // Consumer отвечает за чтение данных из файла бэкапа
 type Consumer struct {
 	file   *os.File      // Файл для чтения

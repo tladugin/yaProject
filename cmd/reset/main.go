@@ -84,33 +84,57 @@ func run(rootDir string) error {
 
 		// Анализируем Go файлы в директории
 		fset := token.NewFileSet()
-		pkgs, err := parser.ParseDir(fset, path, func(fi fs.FileInfo) bool {
-			// Пропускаем тестовые файлы и сгенерированные файлы
-			return !strings.HasSuffix(fi.Name(), "_test.go") &&
-				!strings.HasSuffix(fi.Name(), ".gen.go")
-		}, parser.ParseComments)
+		files, err := os.ReadDir(path)
 		if err != nil {
-			// Если это не Go пакет, пропускаем
 			return nil
 		}
 
-		for pkgName, pkg := range pkgs {
-			info := &PackageInfo{
-				Name:    pkgName,
-				Path:    path,
-				Structs: make([]StructInfo, 0),
-				FileSet: fset,
-				Package: pkg,
+		pkgInfo := &PackageInfo{
+			Path:    path,
+			Structs: make([]StructInfo, 0),
+			FileSet: fset,
+			Files:   make([]*ast.File, 0),
+		}
+
+		// Парсим каждый Go файл в директории
+		for _, file := range files {
+			if file.IsDir() {
+				continue
 			}
 
-			// Ищем структуры с комментарием generate:reset
-			if err := info.findResetableStructs(); err != nil {
-				return err
+			name := file.Name()
+			// Пропускаем тестовые файлы и сгенерированные файлы
+			if strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".gen.go") {
+				continue
 			}
 
-			if len(info.Structs) > 0 {
-				packages[path] = info
+			if !strings.HasSuffix(name, ".go") {
+				continue
 			}
+
+			filename := filepath.Join(path, name)
+			parsedFile, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+			if err != nil {
+				continue
+			}
+
+			pkgInfo.Files = append(pkgInfo.Files, parsedFile)
+			if pkgInfo.Name == "" {
+				pkgInfo.Name = parsedFile.Name.Name
+			}
+		}
+
+		if len(pkgInfo.Files) == 0 {
+			return nil
+		}
+
+		// Ищем структуры с комментарием generate:reset
+		if err := pkgInfo.findResetableStructs(); err != nil {
+			return err
+		}
+
+		if len(pkgInfo.Structs) > 0 {
+			packages[path] = pkgInfo
 		}
 
 		return nil
@@ -142,7 +166,7 @@ type PackageInfo struct {
 	Path    string
 	Structs []StructInfo
 	FileSet *token.FileSet
-	Package *ast.Package
+	Files   []*ast.File
 }
 
 type StructInfo struct {
@@ -160,7 +184,7 @@ type FieldInfo struct {
 }
 
 func (pkg *PackageInfo) findResetableStructs() error {
-	for _, file := range pkg.Package.Files {
+	for _, file := range pkg.Files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			switch x := n.(type) {
 			case *ast.GenDecl:

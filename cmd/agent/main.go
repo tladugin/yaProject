@@ -18,6 +18,10 @@ import (
 )
 
 func main() {
+
+	// Вывод информации о сборке
+	agent.PrintBuildInfo()
+
 	// Инициализация структурированного логгера
 	sugar, err := logger.InitLogger()
 	if err != nil {

@@ -5,7 +5,7 @@ import (
 )
 
 // Типы метрик
-
+// generate:reset
 // gauge представляет метрику типа "gauge" (значение произвольное)
 type gauge struct {
 	Name  string

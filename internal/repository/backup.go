@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// generate:reset
 // Consumer отвечает за чтение данных из файла бэкапа
 type Consumer struct {
 	file   *os.File      // Файл для чтения
@@ -220,7 +221,7 @@ func performBackup(storage *MemStorage, producer *Producer, flagFileStoragePath 
 	// Переименование текущего бэкапа в старый
 	err = os.Rename(flagFileStoragePath, oldBackup)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to rename backup from %s to %s: %w", flagFileStoragePath, oldBackup, err)
 	}
 
 	// Удаление текущего файла бэкапа

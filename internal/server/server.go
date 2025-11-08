@@ -10,84 +10,109 @@ import (
 	"sync"
 )
 
-func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string) {
+// RunHTTPServer запускает HTTP сервер для работы с метриками
+func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string, flagKey *string, flagAuditFile *string, flagAuditURL *string) {
 	defer wg.Done()
 
-	s := handler.NewServer(storage)
-	sSync := handler.NewServerSync(storage, producer)
+	// Создаем менеджер аудита для отслеживания операций
 
-	var db *handler.ServerDB
-	var ping *handler.ServerPing
+	auditManager := NewAuditManager(true)
+	defer auditManager.Close()
 
+	// Инициализируем наблюдатели аудита (файловый и/или HTTP)
+	initAuditObservers(auditManager, flagAuditFile, flagAuditURL)
+
+	// Создаем обработчики для разных режимов работы
+	s := handler.NewServer(storage)                   // Базовый обработчик
+	sSync := handler.NewServerSync(storage, producer) // Синхронный обработчик с бэкапом
+
+	var db *handler.ServerDB     // Обработчик для работы с БД
+	var ping *handler.ServerPing // Обработчик для проверки соединения
+
+	// Инициализация работы с PostgreSQL если указан DSN
 	if *flagDatabaseDSN != "" {
-		//проверка миграций
+		// Проверка и применение миграций базы данных
 		p, _, err := repository.NewPostgresRepository(*flagDatabaseDSN)
 		if err != nil {
 			logger.Sugar.Error("Failed to initialize storage: %v", err.Error())
 		}
 		defer p.Close()
-		//соединение с БД
+
+		// Установка соединения с базой данных
 		pool, _, _, err := repository.GetConnection(*flagDatabaseDSN)
 		if err != nil {
 			logger.Sugar.Error("Failed to get connection!: %v", err.Error())
 		}
 		defer pool.Close()
-		ping = handler.NewServerPingDB(storage, flagDatabaseDSN)
-		db = handler.NewServerDB(storage, pool)
 
+		// Создание обработчиков для работы с БД
+		ping = handler.NewServerPingDB(storage, flagDatabaseDSN) // Обработчик проверки доступности БД
+		db = handler.NewServerDB(storage, pool, flagKey)         // Основной обработчик операций с БД
 	}
 
+	// Настройка маршрутизатора
 	r := chi.NewRouter()
-	r.Use(repository.GzipMiddleware,
-		logger.LoggingAnswer(logger.Sugar),
-		logger.LoggingRequest(logger.Sugar),
+
+	// Регистрация middleware компонентов
+	r.Use(
+		repository.GzipMiddleware,           // Сжатие ответов
+		logger.LoggingAnswer(logger.Sugar),  // Логирование ответов
+		logger.LoggingRequest(logger.Sugar), // Логирование запросов
+		AuditMiddleware(auditManager),       // Аудит операций
 	)
+
+	// Определение маршрутов приложения
 	r.Route("/", func(r chi.Router) {
-
+		// Маршруты для работы с базой данных (если подключена)
 		if *flagDatabaseDSN != "" {
-
-			r.Get("/ping", ping.GetPing)
-			r.Post("/update", db.PostUpdatePostgres)
-			r.Post("/update/", db.PostUpdatePostgres)
-			r.Post("/value", db.PostValue)
-			r.Post("/value/", db.PostValue)
-			r.Post("/updates", db.UpdatesGaugesBatchPostgres)
-			r.Post("/updates/", db.UpdatesGaugesBatchPostgres)
+			r.Get("/ping", ping.GetPing)                       // Проверка доступности БД
+			r.Post("/update", db.PostUpdatePostgres)           // Обновление метрик
+			r.Post("/update/", db.PostUpdatePostgres)          // Альтернативный путь обновления
+			r.Post("/value", db.PostValue)                     // Получение значения метрики
+			r.Post("/value/", db.PostValue)                    // Альтернативный путь получения
+			r.Post("/updates", db.UpdatesGaugesBatchPostgres)  // Пакетное обновление метрик
+			r.Post("/updates/", db.UpdatesGaugesBatchPostgres) // Альтернативный путь пакетного обновления
 
 		} else {
-			r.Get("/", s.MainPage)
-			r.Get("/value/{metric}/{name}", s.GetHandler)
-			r.Post("/update/{metric}/{name}/{value}", s.PostHandler)
+			// Маршруты для работы с in-memory хранилищем
+			r.Get("/", s.MainPage)                                   // Главная страница
+			r.Get("/value/{metric}/{name}", s.GetHandler)            // Получение метрики через URL параметры
+			r.Post("/update/{metric}/{name}/{value}", s.PostHandler) // Обновление через URL параметры
+			r.Post("/updates", s.UpdatesGaugesBatch)                 // Пакетное обновление gauge метрик
+			r.Post("/updates/", s.UpdatesGaugesBatch)                // Альтернативный путь пакетного обновления
 
+			// Выбор режима бэкапа в зависимости от интервала
 			if flagStoreInterval == "0" {
 				logger.Sugar.Info("Running in sync backup mode")
-				r.Post("/update", sSync.PostUpdateSyncBackup)
-				r.Post("/update/", sSync.PostUpdateSyncBackup)
+				r.Post("/update", sSync.PostUpdateSyncBackup)  // Синхронный бэкап после каждого обновления
+				r.Post("/update/", sSync.PostUpdateSyncBackup) // Альтернативный путь синхронного обновления
 			} else {
 				logger.Sugar.Info("Running in async backup mode")
-				r.Post("/update", s.PostUpdate)
-				r.Post("/update/", s.PostUpdate)
+				r.Post("/update", s.PostUpdate)  // Асинхронный бэкап (по расписанию)
+				r.Post("/update/", s.PostUpdate) // Альтернативный путь асинхронного обновления
 			}
 
-			r.Post("/value", s.PostValue)
-			r.Post("/value/", s.PostValue)
+			r.Post("/value", s.PostValue)  // Получение значения через POST
+			r.Post("/value/", s.PostValue) // Альтернативный путь получения
 		}
-
 	})
 
+	// Настройка HTTP сервера
 	server := &http.Server{
-		Addr:    *flagRunAddr,
-		Handler: r,
+		Addr:    *flagRunAddr, // Адрес и порт для прослушивания
+		Handler: r,            // Настроенный маршрутизатор
 	}
 
+	// Горутина для graceful shutdown
 	go func() {
-		<-stop
+		<-stop // Ожидание сигнала остановки
 		logger.Sugar.Info("Shutting down HTTP server...")
 		if err := server.Close(); err != nil {
 			logger.Sugar.Error("HTTP server shutdown error: ", err)
 		}
 	}()
 
+	// Запуск сервера
 	logger.Sugar.Infof("Starting server on %s", *flagRunAddr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Sugar.Error("Server failed: ", err)

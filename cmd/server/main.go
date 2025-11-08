@@ -1,79 +1,99 @@
 package main
 
 import (
+	"fmt"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"github.com/tladugin/yaProject.git/internal/server"
-
 	"log"
+	"net/http"
+	_ "net/http/pprof" // подключаем пакет pprof для профилирования
 	"sync"
 	"time"
 )
 
-// logger
-
+// Глобальная переменная для ошибок
 var err error
 
+// main - основная функция приложения, точка входа
 func main() {
-	parseFlags()
+	// Парсинг флагов командной строки
+	flags := parseFlags()
 
-	// Инициализация логгера
+	// Запуск pprof сервера для профилирования если включен
+	if flags.flagUsePprof {
+		go func() {
+			fmt.Println("Starting pprof server on :6060")
+			// Запуск HTTP сервера для сбора профилей производительности
+			if err := http.ListenAndServe(":6060", nil); err != nil {
+				logger.Sugar.Error("Pprof server error: ", err)
+			}
+		}()
+	}
+
+	// Инициализация логгера для структурированного логирования
 	logger.Sugar, err = logger.InitLogger()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer func() {
-		_ = logger.Sugar.Sync() // Безопасное закрытие логгера
+		// Безопасное закрытие логгера при завершении программы
+		_ = logger.Sugar.Sync()
 	}()
 
-	// Убедимся, что sugar не nil
+	// Проверка успешной инициализации логгера
 	if logger.Sugar == nil {
 		log.Fatal("Logger initialization failed")
 	}
 
+	// Создание in-memory хранилища для метрик
 	storage := repository.NewMemStorage()
 
-	// Восстановление данных из бэкапа
-	if flagRestore {
-		repository.RestoreFromBackup(storage, flagFileStoragePath)
+	// Восстановление данных из файла бэкапа если включена опция restore
+	if flags.flagRestore {
+		repository.RestoreFromBackup(storage, flags.flagFileStoragePath)
 	}
 
-	// Инициализация продюсера
-	producer, err := repository.NewProducer(flagFileStoragePath)
+	// Инициализация продюсера для записи бэкапов
+	producer, err := repository.NewProducer(flags.flagFileStoragePath)
 	if err != nil {
 		logger.Sugar.Fatal("Could not open backup file: ", err)
 	}
-	//defer safeCloseProducer(producer)
 
-	// Парсинг интервала сохранения
-	storeInterval, err := time.ParseDuration(flagStoreInterval + "s")
+	// Парсинг интервала сохранения из строки в Duration
+	storeInterval, err := time.ParseDuration(flags.flagStoreInterval + "s")
 	if err != nil {
 		logger.Sugar.Fatal("Invalid store interval: ", err)
 	}
 
-	// Канал для graceful shutdown
+	// Канал для graceful shutdown - уведомляет все горутины о необходимости завершения
 	stopProgram := make(chan struct{})
-	var wg sync.WaitGroup
+	var wg sync.WaitGroup // WaitGroup для ожидания завершения всех горутин
 
-	// Запуск фоновых задач
+	// Запуск фоновых задач в отдельных горутинах
 
-	if flagStoreInterval != "0" {
+	// Запуск периодического бэкапа если интервал не равен 0 (не синхронный режим)
+	if flags.flagStoreInterval != "0" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			repository.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flagFileStoragePath)
+			// Запуск периодического создания бэкапов с заданным интервалом
+			repository.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flags.flagFileStoragePath)
 		}()
 	}
 
+	// Запуск горутины для финального бэкапа при завершении программы
 	wg.Add(1)
-	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, flagFileStoragePath)
+	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, flags.flagFileStoragePath)
 
+	// Запуск основного HTTP сервера для обработки запросов метрик
 	wg.Add(1)
-	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flagStoreInterval, &flagRunAddr, &flagDatabaseDSN)
+	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flags.flagStoreInterval, &flags.flagRunAddr, &flags.flagDatabaseDSN, &flags.flagKey, &flags.flagAuditFile, &flags.flagAuditURL)
 
-	// Ожидание сигнала завершения
+	// Ожидание сигнала завершения (SIGTERM, SIGINT)
 	repository.WaitForShutdown(stopProgram)
+
+	// Ожидание завершения всех горутин
 	wg.Wait()
 	logger.Sugar.Info("Application shutdown complete")
 }

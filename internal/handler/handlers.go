@@ -2,10 +2,13 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/tladugin/yaProject.git/internal/logger"
 	"io"
 	"log"
 
@@ -20,103 +23,115 @@ import (
 	"strings"
 )
 
+// Конструкторы для создания обработчиков
+
+// NewServerSync создает сервер с синхронным бэкапом
 func NewServerSync(s *repository.MemStorage, p *repository.Producer) *ServerSync {
 	return &ServerSync{
 		storage:  s,
 		producer: p,
 	}
-
 }
 
+// NewServer создает базовый сервер без бэкапа
 func NewServer(s *repository.MemStorage) *Server {
 	return &Server{
 		storage: s,
 	}
-
 }
 
+// Структуры обработчиков
+
+// Server - базовый обработчик для in-memory хранилища
 type Server struct {
 	storage *repository.MemStorage
 }
 
+// ServerPing - обработчик для проверки соединения с БД
 type ServerPing struct {
 	storage     *repository.MemStorage
 	databaseDSN *string
 }
+
+// ServerDB - обработчик для работы с PostgreSQL
 type ServerDB struct {
 	storage        *repository.MemStorage
 	connectionPool *pgxpool.Pool
+	flagKey        *string
 }
 
-func NewServerDB(s *repository.MemStorage, p *pgxpool.Pool) *ServerDB {
+// NewServerDB создает обработчик для работы с базой данных
+func NewServerDB(s *repository.MemStorage, p *pgxpool.Pool, k *string) *ServerDB {
 	return &ServerDB{
 		storage:        s,
 		connectionPool: p,
+		flagKey:        k,
 	}
-
 }
 
+// NewServerPingDB создает обработчик для проверки доступности БД
 func NewServerPingDB(s *repository.MemStorage, c *string) *ServerPing {
 	return &ServerPing{
 		storage:     s,
 		databaseDSN: c,
 	}
-
 }
 
+// ServerSync - обработчик с синхронным бэкапом в файл
 type ServerSync struct {
 	storage  *repository.MemStorage
 	producer *repository.Producer
 }
 
+// MainPage отображает главную страницу со списком всех метрик
 func (s *Server) MainPage(res http.ResponseWriter, req *http.Request) {
-
 	res.Header().Set("Content-Type", "text/html; charset=utf-8")
 	res.Header().Set("Content-Encoding", "gzip")
 	res.Header().Set("Accept-Encoding", "gzip")
 
+	// Генерация HTML страницы со списком метрик
 	fmt.Fprint(res, "<html><body><ul>")
+
+	// Отображение gauge метрик
 	for m := range s.storage.GaugeSlice() {
-
 		fmt.Fprintf(res, "<li>%s: %v</li>", s.storage.GaugeSlice()[m].Name, s.storage.GaugeSlice()[m].Value)
-
-		//res.Header().Set("Content-Type", "application/json")
-		//json.NewEncoder(res).Encode(s.storage.GaugeSlice()[m])
-		//res.WriteHeader(http.StatusOK)
 	}
 
+	// Отображение counter метрик
 	for m := range s.storage.CounterSlice() {
-
 		fmt.Fprintf(res, "<li>%s: %v</li>", s.storage.CounterSlice()[m].Name, s.storage.CounterSlice()[m].Value)
-
-		//res.Header().Set("Content-Type", "application/json")
-		//json.NewEncoder(res).Encode(s.storage.CounterSlice()[m])
-		//res.WriteHeader(http.StatusOK)
-
 	}
+
 	fmt.Fprint(res, "</ul></body></html>")
 }
 
-// postgres handlers! --->
-func (s *ServerDB) updateGaugePostgres(ctx context.Context, name string, value float64) error {
+// Обработчики для работы с PostgreSQL
 
+// updateGaugePostgres обновляет gauge метрику в PostgreSQL
+func (s *ServerDB) updateGaugePostgres(ctx context.Context, name string, value float64) error {
 	_, err := s.connectionPool.Exec(ctx,
-		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`, name, value)
+		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) 
+		 ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`,
+		name, value)
 	if err != nil {
 		return fmt.Errorf("error updating gauge_metrics: %v", err)
-		//println("update gauges error: " + err.Error())
 	}
 	return nil
 }
+
+// updateCounterPostgres обновляет counter метрику в PostgreSQL
 func (s *ServerDB) updateCounterPostgres(ctx context.Context, name string, delta int64) error {
 	_, err := s.connectionPool.Exec(ctx,
-		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`, name, delta)
+		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) 
+		 ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`,
+		name, delta)
 	if err != nil {
 		return fmt.Errorf("error updating counter_metrics: %v", err)
 	}
 	return nil
 }
 
+// PostUpdatePostgres обрабатывает обновление метрик через JSON для PostgreSQL
 func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request) {
 	ctx := context.Background()
 	res.Header().Set("Content-Type", "application/json")
@@ -130,20 +145,13 @@ func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request
 	}
 	defer req.Body.Close()
 
-	/*if metric.ID == "" {
-		http.Error(res, "Metric ID is required", http.StatusBadRequest)
-		return
-	}
-
-	*/
-
+	// Валидация и обработка метрик в зависимости от типа
 	switch metric.MType {
 	case "gauge":
 		if metric.Value == nil {
 			http.Error(res, "Gauge value is required", http.StatusBadRequest)
 			return
 		}
-
 		err := s.updateGaugePostgres(ctx, metric.ID, *metric.Value)
 		if err != nil {
 			http.Error(res, err.Error(), http.StatusInternalServerError)
@@ -155,7 +163,6 @@ func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request
 			http.Error(res, "Counter delta is required", http.StatusBadRequest)
 			return
 		}
-
 		err := s.updateCounterPostgres(ctx, metric.ID, *metric.Delta)
 		if err != nil {
 			http.Error(res, err.Error(), http.StatusInternalServerError)
@@ -170,6 +177,8 @@ func (s *ServerDB) PostUpdatePostgres(res http.ResponseWriter, req *http.Request
 	// Возвращаем обновленную метрику
 	json.NewEncoder(res).Encode(metric)
 }
+
+// getGauge получает gauge метрику из PostgreSQL
 func (s *ServerDB) getGauge(ctx context.Context, name string) (models.Metrics, error) {
 	var value float64
 	err := s.connectionPool.QueryRow(ctx,
@@ -186,6 +195,7 @@ func (s *ServerDB) getGauge(ctx context.Context, name string) (models.Metrics, e
 	}, nil
 }
 
+// getCounter получает counter метрику из PostgreSQL
 func (s *ServerDB) getCounter(ctx context.Context, name string) (models.Metrics, error) {
 	var value int64
 	err := s.connectionPool.QueryRow(ctx,
@@ -202,6 +212,7 @@ func (s *ServerDB) getCounter(ctx context.Context, name string) (models.Metrics,
 	}, nil
 }
 
+// PostValue обрабатывает запрос на получение значения метрики для PostgreSQL
 func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 	ctx := context.Background()
 	res.Header().Set("Content-Type", "application/json")
@@ -223,6 +234,7 @@ func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 	var result models.Metrics
 	var err error
 
+	// Получение метрики в зависимости от типа
 	switch metric.MType {
 	case "gauge":
 		result, err = s.getGauge(ctx, metric.ID)
@@ -233,6 +245,7 @@ func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Обработка ошибок при получении метрики
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(res, "Metric not found", http.StatusNotFound)
@@ -244,68 +257,164 @@ func (s *ServerDB) PostValue(res http.ResponseWriter, req *http.Request) {
 
 	json.NewEncoder(res).Encode(result)
 }
+
+// UpdatesGaugesBatchPostgres обрабатывает пакетное обновление метрик для PostgreSQL
 func (s *ServerDB) UpdatesGaugesBatchPostgres(res http.ResponseWriter, req *http.Request) {
 	ctx := context.Background()
 	res.Header().Set("Content-Type", "application/json")
 	res.Header().Set("Content-Encoding", "gzip")
 	res.Header().Set("Accept-Encoding", "gzip")
 
-	var metrics []models.Metrics
-
-	if err := json.NewDecoder(req.Body).Decode(&metrics); err != nil {
-		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+	// Читаем тело запроса один раз
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(res, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
 	defer req.Body.Close()
 
-	// Начинаем транзакцию
+	// Проверка хеша (если ключ установлен)
+	if req.Header.Get("HashSHA256") != "" && s.flagKey != nil && *s.flagKey != "" {
+		bytesKey := []byte(*s.flagKey)
+		hash := sha256.Sum256(append(bytesKey, bodyBytes...))
+		hashHeaderServer := hex.EncodeToString(hash[:])
+
+		if hashHeaderServer != req.Header.Get("HashSHA256") {
+			res.Header().Set("HashSHA256", hashHeaderServer)
+			http.Error(res, "Invalid hash header", http.StatusBadRequest)
+			return
+		}
+		res.Header().Set("HashSHA256", hashHeaderServer)
+	}
+
+	// Декодируем JSON из сохранённых байтов
+	var metrics []models.Metrics
+	if err := json.Unmarshal(bodyBytes, &metrics); err != nil {
+		logger.Sugar.Info("could not decode metrics json")
+		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	// Собираем названия метрик для аудита
+	var metricNames []string
+	for _, metric := range metrics {
+		metricNames = append(metricNames, metric.ID)
+	}
+
+	// Начинаем транзакцию для атомарности операций
 	tx, err := s.connectionPool.Begin(ctx)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	defer tx.Rollback(ctx)
 
-	// Подготавливаем statement для пакетного обновления
+	// Подготавливаем statement для пакетного обновления gauge метрик
 	stmtGauge, err := tx.Prepare(ctx, "batch_update_gauge",
-		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`)
+		`INSERT INTO gauge_metrics (name, value) VALUES ($1, $2) 
+		 ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
+	// Подготавливаем statement для пакетного обновления counter метрик
 	stmtCounter, err := tx.Prepare(ctx, "batch_update_counter",
-		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`)
+		`INSERT INTO counter_metrics (name, value) VALUES ($1, $2) 
+		 ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value`)
 	if err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	// Выполняем пакетное обновление
+	// Выполняем пакетное обновление метрик
 	for _, value := range metrics {
+		var err error
 		switch value.MType {
 		case "gauge":
-			_, err := tx.Exec(ctx, stmtGauge.SQL, value.ID, value.Value)
-			if err != nil {
-				http.Error(res, err.Error(), http.StatusInternalServerError)
-			}
+			_, err = tx.Exec(ctx, stmtGauge.SQL, value.ID, value.Value)
 		case "counter":
-			_, err := tx.Exec(ctx, stmtCounter.SQL, value.ID, value.Delta)
-			if err != nil {
-				http.Error(res, err.Error(), http.StatusInternalServerError)
-			}
+			_, err = tx.Exec(ctx, stmtCounter.SQL, value.ID, value.Delta)
+		default:
+			http.Error(res, "Unknown metric type", http.StatusBadRequest)
+			return
 		}
 
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Фиксируем транзакцию
 	if err := tx.Commit(ctx); err != nil {
 		http.Error(res, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
+	// Добавляем данные для аудита в контекст и сохраняем обновленный запрос
+	ip := getIPAddress(req)
+	updatedReq := WithAuditData(req, metricNames, ip)
+
+	// Сохраняем обновленный контекст в оригинальный запрос
+	*req = *updatedReq
+
+	res.WriteHeader(http.StatusOK)
 }
 
-// postgres handlers! ^----
-func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Request) {
-	//metricCounter += 1
+// UpdatesGaugesBatch обрабатывает пакетное обновление метрик для in-memory хранилища
+func (s *Server) UpdatesGaugesBatch(res http.ResponseWriter, req *http.Request) {
+	res.Header().Set("Content-Type", "application/json")
+	res.Header().Set("Content-Encoding", "gzip")
+	res.Header().Set("Accept-Encoding", "gzip")
 
+	// Читаем тело запроса один раз
+	bodyBytes, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(res, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer req.Body.Close()
+
+	// Декодируем JSON из сохранённых байтов
+	var metrics []models.Metrics
+	if err := json.Unmarshal(bodyBytes, &metrics); err != nil {
+		logger.Sugar.Info("could not decode metrics json")
+		http.Error(res, "Invalid JSON format", http.StatusBadRequest)
+		return
+	}
+
+	// Собираем названия метрик для аудита
+	var metricNames []string
+	for _, value := range metrics {
+		metricNames = append(metricNames, value.ID)
+	}
+
+	// Выполняем пакетное обновление в in-memory хранилище
+	for _, value := range metrics {
+		switch value.MType {
+		case "gauge":
+			s.storage.AddGauge(value.ID, *value.Value)
+		case "counter":
+			s.storage.AddCounter(value.ID, *value.Delta)
+		default:
+			http.Error(res, "Unknown metric type", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Добавляем данные для аудита в контекст и сохраняем обновленный запрос
+	ip := getIPAddress(req)
+	updatedReq := WithAuditData(req, metricNames, ip)
+
+	// Сохраняем обновленный контекст в оригинальный запрос
+	*req = *updatedReq
+
+	res.WriteHeader(http.StatusOK)
+}
+
+// PostUpdateSyncBackup обрабатывает обновление метрик с синхронным бэкапом в файл
+func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Request) {
 	res.Header().Set("Content-Type", "application/json")
 	res.Header().Set("Content-Encoding", "gzip")
 	res.Header().Set("Accept-Encoding", "gzip")
@@ -329,24 +438,25 @@ func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Req
 			http.Error(res, "Error closing body", http.StatusInternalServerError)
 		}
 	}(req.Body)
+
+	// Обработка метрик в зависимости от типа
 	switch decodedMetrics.MType {
 	case "gauge":
-		//println(decodedMetrics.ID)
 		if decodedMetrics.Value == nil {
 			http.Error(res, "No gauge value", http.StatusNotAcceptable)
 			return
 		}
+		// Обновление в памяти и запись в бэкап
 		s.storage.AddGauge(decodedMetrics.ID, *decodedMetrics.Value)
 
 		encodedMetrics.ID = decodedMetrics.ID
 		encodedMetrics.MType = "gauge"
 		encodedMetrics.Value = decodedMetrics.Value
 
+		// Синхронная запись в файл бэкапа
 		if err = s.producer.WriteEvent(&encodedMetrics); err != nil {
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 		}
-
-		//fmt.Println(encodedMetrics.ID, encodedMetrics.MType, encodedMetrics.Value)
 
 		err = encoder.Encode(encodedMetrics)
 
@@ -361,8 +471,7 @@ func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Req
 		encodedMetrics.MType = "counter"
 		encodedMetrics.Delta = decodedMetrics.Delta
 
-		//fmt.Println(encodedMetrics.ID, encodedMetrics.MType, encodedMetrics.Delta)
-
+		// Синхронная запись в файл бэкапа
 		if err = s.producer.WriteEvent(&encodedMetrics); err != nil {
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 		}
@@ -372,13 +481,11 @@ func (s *ServerSync) PostUpdateSyncBackup(res http.ResponseWriter, req *http.Req
 	default:
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
 		return
-
 	}
-
 }
-func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
-	//metricCounter += 1
 
+// PostUpdate обрабатывает обновление метрик без бэкапа (асинхронный режим)
+func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 	res.Header().Set("Content-Type", "application/json")
 	res.Header().Set("Content-Encoding", "gzip")
 	res.Header().Set("Accept-Encoding", "gzip")
@@ -402,9 +509,9 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "Error closing body", http.StatusInternalServerError)
 		}
 	}(req.Body)
+
 	switch decodedMetrics.MType {
 	case "gauge":
-		//println(decodedMetrics.ID)
 		if decodedMetrics.Value == nil {
 			http.Error(res, "No gauge value", http.StatusNotAcceptable)
 			return
@@ -436,12 +543,11 @@ func (s *Server) PostUpdate(res http.ResponseWriter, req *http.Request) {
 	default:
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
 		return
-
 	}
-
 }
-func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 
+// PostValue обрабатывает запрос на получение значения метрики для in-memory хранилища
+func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 	res.Header().Set("Content-Type", "application/json")
 	res.Header().Set("Content-Encoding", "gzip")
 	res.Header().Set("Accept-Encoding", "gzip")
@@ -460,20 +566,19 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 	}
 	defer req.Body.Close()
 	encoder := json.NewEncoder(res)
+
+	// Поиск и возврат метрики в зависимости от типа
 	switch decodedMetrics.MType {
 	case "gauge":
 		getCheck := false
 		for i, m := range s.storage.GaugeSlice() {
 			if m.Name == decodedMetrics.ID {
 				getCheck = true
-
 				encodedMetrics.MType = "gauge"
 				encodedMetrics.ID = s.storage.GaugeSlice()[i].Name
 				encodedMetrics.Value = &s.storage.GaugeSlice()[i].Value
 				encoder.Encode(encodedMetrics)
-
 			}
-
 		}
 		if !getCheck {
 			http.Error(res, "No metric found", http.StatusNotFound)
@@ -484,13 +589,11 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 		for i, m := range s.storage.CounterSlice() {
 			if m.Name == decodedMetrics.ID {
 				getCheck = true
-
 				encodedMetrics.MType = "counter"
 				encodedMetrics.ID = s.storage.CounterSlice()[i].Name
 				encodedMetrics.Delta = &s.storage.CounterSlice()[i].Value
 				encoder.Encode(encodedMetrics)
 			}
-
 		}
 		if !getCheck {
 			http.Error(res, "No metric found", http.StatusNotFound)
@@ -500,40 +603,28 @@ func (s *Server) PostValue(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, "Wrong metric type", http.StatusNotAcceptable)
 		return
 	}
-
 }
 
+// PostHandler обрабатывает обновление метрик через URL параметры
 func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
-
-	//res.Header().Set("Content-Encoding", "gzip")
-	//res.Header().Set("Accept-Encoding", "gzip")
-
-	//params := chi.URLParam(req, "URL")
+	// Разбор URL для получения параметров метрики
 	parts := strings.Split(req.URL.Path, "/")
 	if len(parts) != 5 {
 		http.Error(res, "Invalid URL", http.StatusBadRequest)
 	}
 	metric := chi.URLParam(req, "metric")
-	//println(metric)
 	name := chi.URLParam(req, "name")
-	//println(name)
 	value := chi.URLParam(req, "value")
-	//println(value)
 
+	// Обработка метрик в зависимости от типа
 	switch metric {
-
 	case "gauge":
-		//if partFloat, err := strconv. ParseFloat(v, 64); err == nil { fmt. Printf("%T, %v\n", s, s)}
 		partFloat, Error := strconv.ParseFloat(value, 64)
-		//fmt.Printf("%f", partFloat)
 		if Error != nil {
 			http.Error(res, "Invalid metric value", http.StatusBadRequest)
 			return
 		}
-
 		s.storage.AddGauge(name, partFloat)
-		//println(s.storage.GaugeSlice())
-		//res.WriteHeader(http.StatusOK)
 
 	case "counter":
 		partInt, Error := strconv.ParseInt(value, 0, 64)
@@ -541,39 +632,27 @@ func (s *Server) PostHandler(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, "Invalid metric value", http.StatusBadRequest)
 			return
 		}
-
 		s.storage.AddCounter(name, partInt)
-		//res.WriteHeader(http.StatusOK)
 
-		//fmt.Println(s.storage.CounterSlice())
 	default:
 		http.Error(res, "Invalid metric value", http.StatusBadRequest)
 	}
-
 }
+
+// GetHandler обрабатывает получение метрик через URL параметры
 func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
-
-	//res.Header().Set("Content-Encoding", "gzip")
-	//res.Header().Set("Accept-Encoding", "gzip")
-
 	metric := chi.URLParam(req, "metric")
-	//println(metric)
 	name := chi.URLParam(req, "name")
-	//println(name)
 
+	// Поиск и возврат метрики в зависимости от типа
 	switch metric {
 	case "gauge":
 		getCheck := false
 		for i, m := range s.storage.GaugeSlice() {
 			if m.Name == name {
 				getCheck = true
-				//fmt.Fprintf(res, "%s %f", s.storage.GaugeSlice()[i].Name, s.storage.GaugeSlice()[i].Value)
 				fmt.Fprint(res, s.storage.GaugeSlice()[i].Value)
-				//fmt.Println(s.storage.GaugeSlice()[i].Value)
-				//res.WriteHeader(http.StatusOK)
-
 			}
-
 		}
 		if !getCheck {
 			http.Error(res, "No metric found", http.StatusNotFound)
@@ -583,15 +662,7 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 		for i, m := range s.storage.CounterSlice() {
 			if m.Name == name {
 				getCheck = true
-				//println(m.Name)
-				//println(m.Value)
-				//res.Header().Set("Content-Type", "application/json")
-				//json.NewEncoder(res).Encode(s.storage.GaugeSlice()[i])
-				//fmt.Fprintf(res, "%s %d", s.storage.CounterSlice()[i].Name, s.storage.CounterSlice()[i].Value)
 				fmt.Fprint(res, s.storage.CounterSlice()[i].Value)
-
-				//res.WriteHeader(http.StatusOK)
-
 			}
 		}
 		if !getCheck {
@@ -599,11 +670,11 @@ func (s *Server) GetHandler(res http.ResponseWriter, req *http.Request) {
 		}
 	default:
 		http.Error(res, "Invalid metric type", http.StatusNotFound)
-
 	}
 }
-func (s *ServerPing) GetPing(res http.ResponseWriter, req *http.Request) {
 
+// GetPing проверяет доступность базы данных
+func (s *ServerPing) GetPing(res http.ResponseWriter, req *http.Request) {
 	pool, _, cancel, err := repository.GetConnection(*s.databaseDSN)
 
 	if err != nil {
@@ -611,9 +682,7 @@ func (s *ServerPing) GetPing(res http.ResponseWriter, req *http.Request) {
 		log.Fatalf("Connection error: %v", err)
 	} else {
 		res.WriteHeader(http.StatusOK)
-
 	}
 	defer cancel()
 	defer pool.Close()
-
 }

@@ -2,7 +2,7 @@ package main
 
 import (
 	"go/ast"
-	"go/token"
+	"go/types"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -18,7 +18,7 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
-	// Пропускаем тестовые файлы - исправленная логика
+	// Пропускаем тестовые файлы
 	for _, file := range pass.Files {
 		filename := pass.Fset.File(file.Pos()).Name()
 		if strings.HasSuffix(filename, "_test.go") {
@@ -31,62 +31,59 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		return nil, nil
 	}
 
+	// Если TypesInfo не доступен, пропускаем анализ
+	if pass.TypesInfo == nil {
+		return nil, nil
+	}
+
 	insp := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
-	isMainPkg := pass.Pkg.Name() == "main"
-
-	// Создаем карту для отслеживания функций main
-	mainFuncRanges := make(map[string]token.Pos)
-
-	// Сначала находим все функции main и их позиции конца
-	insp.Preorder([]ast.Node{(*ast.FuncDecl)(nil)}, func(n ast.Node) {
-		fn := n.(*ast.FuncDecl)
-		if fn.Name.Name == "main" {
-			// Сохраняем конечную позицию функции main
-			mainFuncRanges[pass.Fset.File(fn.Pos()).Name()] = fn.End()
-		}
-	})
-
-	// Теперь проверяем все вызовы функций
+	// Находим все объявления функций
 	nodeFilter := []ast.Node{
-		(*ast.CallExpr)(nil),
+		(*ast.FuncDecl)(nil),
 	}
 
 	insp.Preorder(nodeFilter, func(n ast.Node) {
-		call := n.(*ast.CallExpr)
-		filename := pass.Fset.File(call.Pos()).Name()
+		fn := n.(*ast.FuncDecl)
 
-		// Проверяем, находится ли вызов в main функции
-		inMainFunc := false
-		if mainEnd, exists := mainFuncRanges[filename]; exists {
-			inMainFunc = call.Pos() < mainEnd
-		}
+		// Проверяем, является ли функция main
+		isMainFunction := pass.Pkg.Name() == "main" && fn.Name.Name == "main"
 
-		checkCallExpr(pass, call, isMainPkg, inMainFunc)
+		// Проверяем все вызовы внутри этой функции
+		ast.Inspect(fn.Body, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok {
+				checkCallExpr(pass, call, isMainFunction)
+			}
+			return true
+		})
 	})
 
 	return nil, nil
 }
 
-func checkCallExpr(pass *analysis.Pass, call *ast.CallExpr, isMainPkg bool, inMainFunc bool) {
-	// Check for panic - всегда запрещено
+func checkCallExpr(pass *analysis.Pass, call *ast.CallExpr, isMainFunction bool) {
+	// Проверяем panic - всегда запрещено
 	if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "panic" {
 		pass.Reportf(call.Pos(), "use of built-in panic function is forbidden")
 		return
 	}
 
-	// Check for log.Fatal or os.Exit
+	// Проверяем log.Fatal или os.Exit с использованием TypesInfo
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		if pkg, ok := sel.X.(*ast.Ident); ok {
-			pkgName := pkg.Name
-			funcName := sel.Sel.Name
+		// Используем TypesInfo для получения информации о пакете
+		if obj, ok := pass.TypesInfo.Uses[sel.Sel]; ok {
+			if pkg, ok := obj.(*types.Func); ok {
+				pkgPath := pkg.Pkg().Path()
+				funcName := pkg.Name()
 
-			if (pkgName == "log" && strings.HasPrefix(funcName, "Fatal")) ||
-				(pkgName == "os" && funcName == "Exit") {
+				// Проверяем, является ли это log.Fatal* или os.Exit
+				if (pkgPath == "log" && strings.HasPrefix(funcName, "Fatal")) ||
+					(pkgPath == "os" && funcName == "Exit") {
 
-				// Разрешаем только если это main пакет И вызов в main функции
-				if !(isMainPkg && inMainFunc) {
-					pass.Reportf(call.Pos(), "call to %s.%s forbidden outside main function", pkgName, funcName)
+					// Разрешаем только если это вызов в функции main
+					if !isMainFunction {
+						pass.Reportf(call.Pos(), "call to %s.%s forbidden outside main function", pkgPath, funcName)
+					}
 				}
 			}
 		}
@@ -96,7 +93,7 @@ func checkCallExpr(pass *analysis.Pass, call *ast.CallExpr, isMainPkg bool, inMa
 func isSkippedPackage(pkgPath string) bool {
 	skipPatterns := []string{
 		"vendor",
-		"testdata", // Добавляем testdata в игнорируемые
+		"testdata",
 	}
 
 	for _, pattern := range skipPatterns {

@@ -8,12 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"io"
 	"log"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tladugin/yaProject.git/internal/models"
 	"github.com/tladugin/yaProject.git/internal/repository"
@@ -678,8 +677,9 @@ func (s *ServerPing) GetPing(res http.ResponseWriter, req *http.Request) {
 	pool, _, cancel, err := repository.GetConnection(*s.databaseDSN)
 
 	if err != nil {
+		log.Printf("Connection error: %v", err)
 		http.Error(res, "Connection error", http.StatusInternalServerError)
-		log.Fatalf("Connection error: %v", err)
+
 	} else {
 		res.WriteHeader(http.StatusOK)
 	}

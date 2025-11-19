@@ -47,6 +47,25 @@ func main() {
 			}
 		}()
 	}
+
+	// Инициализация криптографии - загрузка публичного ключа для шифрования
+	if flags.FlagCryptoKey != "" {
+		err := repository.LoadPublicKey(flags.FlagCryptoKey)
+		if err != nil {
+			sugar.Fatal("Failed to load public key: ", err)
+		}
+		sugar.Info("Public key loaded successfully")
+	}
+
+	if flags.FlagUsePprof {
+		go func() {
+			fmt.Println("Starting pprof server on :6060")
+			// Запуск HTTP сервера для сбора профилей производительности
+			if err := http.ListenAndServe(":6060", nil); err != nil {
+				logger.Sugar.Error("Pprof server error: ", err)
+			}
+		}()
+	}
 	// Создание пула воркеров для ограничения скорости отправки запросов
 	workerPool, err := agent.NewWorkerPool(flags.FlagRateLimit)
 	if err != nil {
@@ -89,7 +108,7 @@ func main() {
 
 	// Горутина для отправки метрик на сервер
 	g.Go(func() error {
-		return agent.ReportMetricsWithContext(ctx, storage, serverURL, flags.FlagKey, reportDuration, workerPool, sugar, &pollCounter)
+		return agent.ReportMetricsWithContext(ctx, storage, serverURL, flags.FlagKey, reportDuration, workerPool, sugar, &pollCounter, flags.FlagCryptoKey)
 	})
 
 	// Ожидаем завершения всех горутин

@@ -16,6 +16,7 @@ type flags struct {
 	flagAuditFile       string
 	flagAuditURL        string
 	flagUsePprof        bool
+	flagCryptoKey       string
 }
 
 // "host=localhost user=postgres password=543218 dbname=metrics sslmode=disable"
@@ -37,6 +38,7 @@ func parseFlags() flags {
 	flag.StringVar(&f.flagAuditFile, "audit-file", "", "path for server audit file")
 	flag.StringVar(&f.flagAuditURL, "audit-url", "", "audit URL")
 	flag.BoolVar(&f.flagUsePprof, "pprof", false, "use benchmark")
+	flag.StringVar(&f.flagCryptoKey, "crypto-key", "", "path to private key for decryption")
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
 
@@ -76,6 +78,9 @@ func parseFlags() flags {
 	envAuditURL, ok := os.LookupEnv("AUDIT_URL")
 	if ok && strings.TrimSpace(envAuditURL) != "" {
 		f.flagAuditURL = envAuditURL
+	}
+	if envCryptoKey := os.Getenv("CRYPTO_KEY"); envCryptoKey != "" {
+		f.flagCryptoKey = envCryptoKey
 	}
 	return f
 }

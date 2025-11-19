@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"runtime"
 	"time"
@@ -12,6 +13,13 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tladugin/yaProject.git/internal/repository"
+)
+
+// Глобальные переменные для информации о сборке
+var (
+	buildVersion string
+	buildDate    string
+	buildCommit  string
 )
 
 // CollectRuntimeMetricsWithContext собирает runtime метрики с учетом контекста
@@ -54,7 +62,7 @@ func CollectSystemMetricsWithContext(ctx context.Context, storage *repository.Me
 }
 
 // ReportMetricsWithContext отправляет метрики на сервер с учетом контекста
-func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64) error {
+func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64, FlagCryptoKey string) error {
 	sugar.Info("Starting metrics reporting")
 	defer sugar.Info("Metrics reporting stopped")
 
@@ -73,7 +81,7 @@ func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorag
 
 			// Отправка метрик через пул воркеров с ограничением скорости
 			workerPool.Submit(func() {
-				err := repository.SendWithRetry(serverURL+"/updates", storage, key, *pollCounter)
+				err := repository.SendWithRetry(serverURL+"/updates", storage, key, *pollCounter, FlagCryptoKey)
 				done <- err
 			})
 
@@ -156,4 +164,23 @@ func collectSystemMetrics(storage *repository.MemStorage) {
 		}
 	}
 	// Если произошла ошибка - метрики CPU не будут добавлены
+}
+
+// printBuildInfo выводит информацию о сборке
+func PrintBuildInfo() {
+	// Устанавливаем "N/A" если значения не заданы
+	if buildVersion == "" {
+		buildVersion = "N/A"
+	}
+	if buildDate == "" {
+		buildDate = "N/A"
+	}
+	if buildCommit == "" {
+		buildCommit = "N/A"
+	}
+
+	// Вывод в формате согласно требованиям
+	log.Printf("Build version: %s", buildVersion)
+	log.Printf("Build date: %s", buildDate)
+	log.Printf("Build commit: %s", buildCommit)
 }

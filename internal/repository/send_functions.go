@@ -3,9 +3,13 @@ package repository
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"github.com/tladugin/yaProject.git/internal/models"
@@ -13,6 +17,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -100,7 +105,7 @@ func SendMetric(URL string, metricType string, storage *MemStorage, i int, key s
 }
 
 // SendMetricsBatch отправляет пачку метрик на сервер
-func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchSize int, key string, pollCounter int64) error {
+func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchSize int, key string, pollCounter int64, FlagCryptoKey string) error {
 	// 1. Подготовка URL
 	if !strings.HasPrefix(URL, "http://") && !strings.HasPrefix(URL, "https://") {
 		URL = "http://" + URL
@@ -153,6 +158,14 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 		return fmt.Errorf("compress data error: %w", err)
 	}
 
+	// 4.1 Шифрование данных при наличии ключа шифрования
+
+	if FlagCryptoKey != "" {
+		compressedData, err = EncryptData(compressedData)
+	}
+	if err != nil {
+		return fmt.Errorf("encrypt data error: %w", err)
+	}
 	// 5. Создание запроса
 	req, err := http.NewRequest("POST", URL, bytes.NewReader(compressedData))
 	if err != nil {
@@ -189,6 +202,55 @@ func SendMetricsBatch(URL string, metricType string, storage *MemStorage, batchS
 	return nil
 }
 
+var publicKey *rsa.PublicKey
+
+// LoadPublicKey загружает публичный ключ из файла
+func LoadPublicKey(keyPath string) error {
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		return err
+	}
+
+	block, _ := pem.Decode(keyData)
+	if block == nil {
+		return fmt.Errorf("failed to parse PEM block containing the public key")
+	}
+
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return err
+	}
+
+	var ok bool
+	publicKey, ok = pub.(*rsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("not an RSA public key")
+	}
+
+	return nil
+}
+
+// EncryptData шифрует данные с помощью публичного ключа
+func EncryptData(data []byte) ([]byte, error) {
+	if publicKey == nil {
+		return data, nil // Если ключ не загружен, возвращаем исходные данные
+	}
+
+	// Шифруем данные с помощью RSA-OAEP
+	encrypted, err := rsa.EncryptOAEP(
+		sha256.New(),
+		rand.Reader,
+		publicKey,
+		data,
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return encrypted, nil
+}
+
 // compressData сжимает данные с использованием gzip
 func compressData(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
@@ -213,7 +275,7 @@ func isRetriableError(err error) bool {
 }
 
 // SendWithRetry отправляет метрики с повторными попытками при временных ошибках
-func SendWithRetry(url string, storage *MemStorage, key string, pollCounter int64) error {
+func SendWithRetry(url string, storage *MemStorage, key string, pollCounter int64, FlagCryptoKey string) error {
 	maxRetries := 3
 	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
@@ -226,7 +288,7 @@ func SendWithRetry(url string, storage *MemStorage, key string, pollCounter int6
 		}
 
 		// Отправка gauge метрик
-		errG := SendMetricsBatch(url, "gauge", storage, len(storage.gaugeSlice), key, pollCounter)
+		errG := SendMetricsBatch(url, "gauge", storage, len(storage.gaugeSlice), key, pollCounter, FlagCryptoKey)
 		if errG != nil {
 			lastErr = errG
 		}
@@ -234,7 +296,7 @@ func SendWithRetry(url string, storage *MemStorage, key string, pollCounter int6
 		lastErr = errG
 
 		// Отправка counter метрик
-		errC := SendMetricsBatch(url, "counter", storage, len(storage.counterSlice), key, pollCounter)
+		errC := SendMetricsBatch(url, "counter", storage, len(storage.counterSlice), key, pollCounter, FlagCryptoKey)
 		if errC == nil {
 			return nil // Успешная отправка
 		}

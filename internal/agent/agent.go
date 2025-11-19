@@ -62,7 +62,7 @@ func CollectSystemMetricsWithContext(ctx context.Context, storage *repository.Me
 }
 
 // ReportMetricsWithContext отправляет метрики на сервер с учетом контекста
-func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64) error {
+func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64, FlagCryptoKey string) error {
 	sugar.Info("Starting metrics reporting")
 	defer sugar.Info("Metrics reporting stopped")
 
@@ -81,7 +81,7 @@ func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorag
 
 			// Отправка метрик через пул воркеров с ограничением скорости
 			workerPool.Submit(func() {
-				err := repository.SendWithRetry(serverURL+"/updates", storage, key, *pollCounter)
+				err := repository.SendWithRetry(serverURL+"/updates", storage, key, *pollCounter, FlagCryptoKey)
 				done <- err
 			})
 

@@ -63,6 +63,8 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 
 	// Регистрация middleware компонентов
 	r.Use(
+
+		DecryptMiddleware,                   // Расшифровывание запросов
 		repository.GzipMiddleware,           // Сжатие ответов
 		logger.LoggingAnswer(logger.Sugar),  // Логирование ответов
 		logger.LoggingRequest(logger.Sugar), // Логирование запросов

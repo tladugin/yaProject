@@ -50,6 +50,15 @@ func main() {
 		log.Fatal("Logger initialization failed")
 	}
 
+	// Инициализация криптографии - загрузка приватного ключа для расшифровки
+	if flags.flagCryptoKey != "" {
+		err := server.LoadPrivateKey(flags.flagCryptoKey)
+		if err != nil {
+			logger.Sugar.Fatal("Failed to load private key: ", err)
+		}
+		logger.Sugar.Info("Private key loaded successfully")
+	}
+
 	// Создание in-memory хранилища для метрик
 	storage := repository.NewMemStorage()
 

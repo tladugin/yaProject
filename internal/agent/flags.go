@@ -44,6 +44,8 @@ func ParseFlags() *Flags {
 	flag.IntVar(&f.FlagRateLimit, "l", 1, "rate limit (max concurrent requests)")
 	flag.BoolVar(&f.FlagUsePprof, "pprof", false, "use benchmark")
 	flag.StringVar(&f.FlagCryptoKey, "crypto-key", "", "path to public key for encryption")
+
+	flag.StringVar(&f.FlagConfigFile, "c", "", "path to config file")
 	flag.StringVar(&f.FlagConfigFile, "config", "", "path to config file")
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()

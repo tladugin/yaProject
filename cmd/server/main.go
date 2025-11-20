@@ -17,11 +17,20 @@ var err error
 
 // main - основная функция приложения, точка входа
 func main() {
+
+	// Вывод информации о сборке
+	server.PrintBuildInfo()
+
+	config, err := GetServerConfig()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
 	// Парсинг флагов командной строки
-	flags := parseFlags()
+	//flags := parseFlags()
 
 	// Запуск pprof сервера для профилирования если включен
-	if flags.flagUsePprof {
+	if config.UsePprof {
 		go func() {
 			fmt.Println("Starting pprof server on :6060")
 			// Запуск HTTP сервера для сбора профилей производительности
@@ -46,22 +55,31 @@ func main() {
 		log.Fatal("Logger initialization failed")
 	}
 
+	// Инициализация криптографии - загрузка приватного ключа для расшифровки
+	if config.CryptoKey != "" {
+		err := server.LoadPrivateKey(config.CryptoKey)
+		if err != nil {
+			logger.Sugar.Fatal("Failed to load private key: ", err)
+		}
+		logger.Sugar.Info("Private key loaded successfully")
+	}
+
 	// Создание in-memory хранилища для метрик
 	storage := repository.NewMemStorage()
 
 	// Восстановление данных из файла бэкапа если включена опция restore
-	if flags.flagRestore {
-		repository.RestoreFromBackup(storage, flags.flagFileStoragePath)
+	if config.Restore {
+		repository.RestoreFromBackup(storage, config.StoreFile)
 	}
 
 	// Инициализация продюсера для записи бэкапов
-	producer, err := repository.NewProducer(flags.flagFileStoragePath)
+	producer, err := repository.NewProducer(config.StoreFile)
 	if err != nil {
 		logger.Sugar.Fatal("Could not open backup file: ", err)
 	}
 
 	// Парсинг интервала сохранения из строки в Duration
-	storeInterval, err := time.ParseDuration(flags.flagStoreInterval + "s")
+	storeInterval, err := time.ParseDuration(config.StoreInterval + "s")
 	if err != nil {
 		logger.Sugar.Fatal("Invalid store interval: ", err)
 	}
@@ -73,22 +91,22 @@ func main() {
 	// Запуск фоновых задач в отдельных горутинах
 
 	// Запуск периодического бэкапа если интервал не равен 0 (не синхронный режим)
-	if flags.flagStoreInterval != "0" {
+	if config.StoreInterval != "0" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			// Запуск периодического создания бэкапов с заданным интервалом
-			repository.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, flags.flagFileStoragePath)
+			repository.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, config.StoreFile)
 		}()
 	}
 
 	// Запуск горутины для финального бэкапа при завершении программы
 	wg.Add(1)
-	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, flags.flagFileStoragePath)
+	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, config.StoreFile)
 
 	// Запуск основного HTTP сервера для обработки запросов метрик
 	wg.Add(1)
-	go server.RunHTTPServer(storage, producer, stopProgram, &wg, flags.flagStoreInterval, &flags.flagRunAddr, &flags.flagDatabaseDSN, &flags.flagKey, &flags.flagAuditFile, &flags.flagAuditURL)
+	go server.RunHTTPServer(storage, producer, stopProgram, &wg, config.StoreInterval, &config.Address, &config.DatabaseDSN, &config.Key, &config.AuditFile, &config.AuditURL)
 
 	// Ожидание сигнала завершения (SIGTERM, SIGINT)
 	repository.WaitForShutdown(stopProgram)

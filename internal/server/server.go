@@ -6,8 +6,16 @@ import (
 	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
+	"log"
 	"net/http"
 	"sync"
+)
+
+// Глобальные переменные для информации о сборке
+var (
+	buildVersion string
+	buildDate    string
+	buildCommit  string
 )
 
 // RunHTTPServer запускает HTTP сервер для работы с метриками
@@ -55,6 +63,8 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 
 	// Регистрация middleware компонентов
 	r.Use(
+
+		DecryptMiddleware,                   // Расшифровывание запросов
 		repository.GzipMiddleware,           // Сжатие ответов
 		logger.LoggingAnswer(logger.Sugar),  // Логирование ответов
 		logger.LoggingRequest(logger.Sugar), // Логирование запросов
@@ -117,4 +127,23 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Sugar.Error("Server failed: ", err)
 	}
+}
+
+// printBuildInfo выводит информацию о сборке
+func PrintBuildInfo() {
+	// Устанавливаем "N/A" если значения не заданы
+	if buildVersion == "" {
+		buildVersion = "N/A"
+	}
+	if buildDate == "" {
+		buildDate = "N/A"
+	}
+	if buildCommit == "" {
+		buildCommit = "N/A"
+	}
+
+	// Вывод в формате согласно требованиям
+	log.Printf("Build version: %s", buildVersion)
+	log.Printf("Build date: %s", buildDate)
+	log.Printf("Build commit: %s", buildCommit)
 }

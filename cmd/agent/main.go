@@ -35,10 +35,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	config, err := agent.GetAgentConfig()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 	// Парсинг флагов командной строки
-	flags := agent.ParseFlags()
+	//flags := agent.ParseFlags()
 
-	if flags.FlagUsePprof {
+	if config.UsePprof {
 		go func() {
 			fmt.Println("Starting pprof server on :6060")
 			// Запуск HTTP сервера для сбора профилей производительности
@@ -49,15 +53,15 @@ func main() {
 	}
 
 	// Инициализация криптографии - загрузка публичного ключа для шифрования
-	if flags.FlagCryptoKey != "" {
-		err := repository.LoadPublicKey(flags.FlagCryptoKey)
+	if config.CryptoKey != "" {
+		err := repository.LoadPublicKey(config.CryptoKey)
 		if err != nil {
 			sugar.Fatal("Failed to load public key: ", err)
 		}
 		sugar.Info("Public key loaded successfully")
 	}
 
-	if flags.FlagUsePprof {
+	if config.UsePprof {
 		go func() {
 			fmt.Println("Starting pprof server on :6060")
 			// Запуск HTTP сервера для сбора профилей производительности
@@ -67,22 +71,22 @@ func main() {
 		}()
 	}
 	// Создание пула воркеров для ограничения скорости отправки запросов
-	workerPool, err := agent.NewWorkerPool(flags.FlagRateLimit)
+	workerPool, err := agent.NewWorkerPool(config.RateLimit)
 	if err != nil {
 		sugar.Fatal("Failed to create worker pool: ", err)
 	}
 	defer workerPool.Shutdown() // Гарантированное завершение пула воркеров
 
 	// Настройка URL сервера для отправки метрик
-	serverURL := flags.FlagRunAddr
+	serverURL := config.Address
 
 	// Парсинг интервалов опроса и отправки метрик
-	pollDuration, err := time.ParseDuration(flags.FlagPollIntervalTime + "s")
+	pollDuration, err := time.ParseDuration(config.PollInterval + "s")
 	if err != nil {
 		sugar.Fatal("Invalid poll interval:", err)
 	}
 
-	reportDuration, err := time.ParseDuration(flags.FlagReportIntervalTime + "s")
+	reportDuration, err := time.ParseDuration(config.ReportInterval + "s")
 	if err != nil {
 		sugar.Fatal("Invalid report interval:", err)
 	}
@@ -108,7 +112,7 @@ func main() {
 
 	// Горутина для отправки метрик на сервер
 	g.Go(func() error {
-		return agent.ReportMetricsWithContext(ctx, storage, serverURL, flags.FlagKey, reportDuration, workerPool, sugar, &pollCounter, flags.FlagCryptoKey)
+		return agent.ReportMetricsWithContext(ctx, storage, serverURL, config.Key, reportDuration, workerPool, sugar, &pollCounter, config.CryptoKey)
 	})
 
 	// Ожидаем завершения всех горутин

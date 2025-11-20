@@ -58,6 +58,7 @@ func parseFlagsServer() *flags {
 	flag.BoolVar(&f.flagUsePprof, "pprof", false, "use benchmark")
 	flag.StringVar(&f.flagCryptoKey, "crypto-key", "", "path to private key for decryption")
 
+	flag.StringVar(&f.flagConfigFile, "c", "", "path to config file")
 	flag.StringVar(&f.flagConfigFile, "config", "", "path to config file")
 
 	flag.Parse()

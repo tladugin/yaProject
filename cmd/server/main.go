@@ -17,6 +17,10 @@ var err error
 
 // main - основная функция приложения, точка входа
 func main() {
+
+	// Вывод информации о сборке
+	server.PrintBuildInfo()
+
 	// Парсинг флагов командной строки
 	flags := parseFlags()
 

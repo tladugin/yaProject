@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,7 +17,6 @@ import (
 )
 
 func main() {
-
 	// Вывод информации о сборке
 	agent.PrintBuildInfo()
 
@@ -32,27 +30,29 @@ func main() {
 	}()
 
 	// Создаем контекст, который отменится при получении сигнала
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+		syscall.SIGINT,
+		syscall.SIGQUIT)
 	defer stop()
 
 	config, err := agent.GetAgentConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-	// Парсинг флагов командной строки
-	//flags := agent.ParseFlags()
 
+	// Запуск pprof сервера (если включен)
 	if config.UsePprof {
 		go func() {
-			fmt.Println("Starting pprof server on :6060")
-			// Запуск HTTP сервера для сбора профилей производительности
-			if err := http.ListenAndServe(":6060", nil); err != nil {
-				logger.Sugar.Error("Pprof server error: ", err)
+			sugar.Info("Starting pprof server on :6060")
+			if err := http.ListenAndServe(":6060", nil); err != nil && err != http.ErrServerClosed {
+				sugar.Errorw("Pprof server error", "error", err)
 			}
 		}()
 	}
 
-	// Инициализация криптографии - загрузка публичного ключа для шифрования
+	// Инициализация криптографии
 	if config.CryptoKey != "" {
 		err := repository.LoadPublicKey(config.CryptoKey)
 		if err != nil {
@@ -61,21 +61,12 @@ func main() {
 		sugar.Info("Public key loaded successfully")
 	}
 
-	if config.UsePprof {
-		go func() {
-			fmt.Println("Starting pprof server on :6060")
-			// Запуск HTTP сервера для сбора профилей производительности
-			if err := http.ListenAndServe(":6060", nil); err != nil {
-				logger.Sugar.Error("Pprof server error: ", err)
-			}
-		}()
-	}
 	// Создание пула воркеров для ограничения скорости отправки запросов
 	workerPool, err := agent.NewWorkerPool(config.RateLimit)
 	if err != nil {
 		sugar.Fatal("Failed to create worker pool: ", err)
 	}
-	defer workerPool.Shutdown() // Гарантированное завершение пула воркеров
+	defer workerPool.Shutdown()
 
 	// Настройка URL сервера для отправки метрик
 	serverURL := config.Address
@@ -94,7 +85,6 @@ func main() {
 	// Создание хранилища для метрик
 	storage := repository.NewMemStorage()
 	var pollCounter int64 = 0
-	// Инициализация счетчика опросов
 	storage.AddCounter("PollCount", 0)
 
 	// Создаем errgroup с нашим контекстом
@@ -115,14 +105,21 @@ func main() {
 		return agent.ReportMetricsWithContext(ctx, storage, serverURL, config.Key, reportDuration, workerPool, sugar, &pollCounter, config.CryptoKey)
 	})
 
+	// Ожидаем сигнал завершения
+	sugar.Info("Agent started. Press Ctrl+C to stop.")
+
 	// Ожидаем завершения всех горутин
 	if err := g.Wait(); err != nil {
 		if err == context.Canceled {
 			sugar.Info("Service shutdown by signal")
 		} else {
-			sugar.Fatalw("Service shutdown with error", "error", err)
+			sugar.Errorw("Service shutdown with error", "error", err)
 		}
 	}
+
+	// Даем время для завершения отправки оставшихся метрик
+	sugar.Info("Waiting for pending requests to complete...")
+	time.Sleep(1 * time.Second)
 
 	sugar.Info("Service shutdown completed successfully")
 }

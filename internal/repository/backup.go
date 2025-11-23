@@ -325,10 +325,20 @@ func performBackupToPostgres(storage *MemStorage, dbPool *pgxpool.Pool) error {
 func WaitForShutdown(stop chan<- struct{}) {
 	// Канал для получения сигналов ОС
 	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 
 	// Ожидание сигнала завершения
 	sig := <-shutdown
-	logger.Sugar.Infof("Received signal: %v. Shutting down...", sig)
-	close(stop) // Отправка сигнала остановки всем горутинам
+	logger.Sugar.Infof("Received signal: %v. Initiating graceful shutdown...", sig)
+
+	// Даем время для завершения обработки текущих запросов
+	logger.Sugar.Info("Waiting for ongoing requests to complete...")
+
+	// Закрываем канал для уведомления всех горутин о необходимости завершения
+	close(stop)
+
+	// Дополнительная небольшая задержка для гарантии обработки сигнала
+	time.Sleep(500 * time.Millisecond)
+
+	logger.Sugar.Info("Shutdown signal processed successfully")
 }

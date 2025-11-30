@@ -1,160 +1,104 @@
 package main
 
 import (
-	"encoding/json"
-	"flag"
 	"fmt"
-	"os"
+	"strings"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
-type flags struct {
-	flagRunAddr         string
-	flagStoreInterval   string
-	flagFileStoragePath string
-	flagRestore         bool
-	flagDatabaseDSN     string
-	flagKey             string
-	flagAuditFile       string
-	flagAuditURL        string
-	flagUsePprof        bool
-	flagCryptoKey       string
-	flagConfigFile      string
+type ServerConfig struct {
+	Address       string `mapstructure:"address"`
+	Restore       bool   `mapstructure:"restore"`
+	StoreInterval int    `mapstructure:"store_interval"`
+	StoreFile     string `mapstructure:"store_file"`
+	DatabaseDSN   string `mapstructure:"database_dsn"`
+	CryptoKey     string `mapstructure:"crypto_key"`
+	Key           string `mapstructure:"key"`
+	AuditFile     string `mapstructure:"audit_file"`
+	AuditURL      string `mapstructure:"audit_url"`
+	UsePprof      bool   `mapstructure:"use_pprof"`
 }
 
-// "host=localhost user=postgres password=543218 dbname=metrics sslmode=disable"
+func GetServerConfig() (*ServerConfig, error) {
+	// Инициализируем Viper
+	v := viper.New()
 
-// LoadServerConfig загружает конфигурацию сервера из файла
-func LoadServerConfig(configPath string) (*ServerConfig, error) {
-	if configPath == "" {
-		return &ServerConfig{}, nil
+	// Устанавливаем значения по умолчанию
+	setDefaults(v)
+
+	// Настраиваем флаги
+	setupFlags(v)
+
+	// Настраиваем переменные окружения
+	setupEnv(v)
+
+	// Загружаем конфигурацию из файла (если указан)
+	if configPath := v.GetString("config.json"); configPath != "" {
+		v.SetConfigFile(configPath)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
+		}
 	}
 
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
+	// Создаем и заполняем структуру конфигурации
 	var config ServerConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	if err := v.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
 	return &config, nil
 }
 
-// parseFlagsServer обновленная функция парсинга флагов сервера
-func parseFlagsServer() *flags {
-	f := &flags{}
-
-	// Основные флаги
-	flag.StringVar(&f.flagRunAddr, "a", "localhost:8080", "address and port to run server")
-	flag.StringVar(&f.flagStoreInterval, "i", "300", "saving server data interval")
-	flag.StringVar(&f.flagFileStoragePath, "f", "server_backup", "path for server backup file")
-	flag.BoolVar(&f.flagRestore, "r", false, "restore server data")
-	flag.StringVar(&f.flagDatabaseDSN, "d", "", "database DSN")
-	flag.StringVar(&f.flagKey, "k", "", "key")
-	flag.StringVar(&f.flagAuditFile, "audit-file", "", "path for server audit file")
-	flag.StringVar(&f.flagAuditURL, "audit-url", "", "audit URL")
-	flag.BoolVar(&f.flagUsePprof, "pprof", false, "use benchmark")
-	flag.StringVar(&f.flagCryptoKey, "crypto-key", "", "path to private key for decryption")
-
-	flag.StringVar(&f.flagConfigFile, "c", "", "path to config file")
-	flag.StringVar(&f.flagConfigFile, "config", "", "path to config file")
-
-	flag.Parse()
-
-	return f
+// setDefaults устанавливает значения по умолчанию
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("address", "localhost:8080")
+	v.SetDefault("store_interval", "300")
+	v.SetDefault("store_file", "server_backup")
+	v.SetDefault("restore", false)
+	v.SetDefault("use_pprof", false)
 }
 
-// ServerConfig структура для конфигурации сервера
-type ServerConfig struct {
-	Address       string `json:"address"`
-	Restore       bool   `json:"restore"`
-	StoreInterval string `json:"store_interval"`
-	StoreFile     string `json:"store_file"`
-	DatabaseDSN   string `json:"database_dsn"`
-	CryptoKey     string `json:"crypto_key"`
-	Key           string `json:"key"`
-	AuditFile     string `json:"audit_file"`
-	AuditURL      string `json:"audit_url"`
-	UsePprof      bool   `json:"use_pprof"`
+// setupFlags настраивает флаги
+func setupFlags(v *viper.Viper) {
+	// Создаем pflag set
+	pflag.StringP("address", "a", "localhost:8080", "address and port to run server")
+	pflag.StringP("store_interval", "i", "300", "saving server data interval")
+	pflag.StringP("store_file", "f", "server_backup", "path for server backup file")
+	pflag.BoolP("restore", "r", false, "restore server data")
+	pflag.StringP("database_dsn", "d", "", "database DSN")
+	pflag.StringP("key", "k", "", "key")
+	pflag.String("audit-file", "", "path for server audit file")
+	pflag.String("audit-url", "", "audit URL")
+	pflag.Bool("pprof", false, "use benchmark")
+	pflag.String("crypto-key", "", "path to private key for decryption")
+	pflag.StringP("config", "c", "", "path to config file")
+
+	// Привязываем флаги к Viper
+	v.BindPFlags(pflag.CommandLine)
+
+	// Парсим флаги
+	pflag.Parse()
 }
 
-// GetServerConfig возвращает финальную конфигурацию сервера с учетом приоритетов
-func GetServerConfig() (*ServerConfig, error) {
-	flags := parseFlagsServer()
+// setupEnv настраивает переменные окружения
+func setupEnv(v *viper.Viper) {
+	// Автоматическое связывание переменных окружения
+	v.AutomaticEnv()
+	v.SetEnvPrefix("METRICS") // Префикс для переменных окружения
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	// Получаем путь к конфигурационному файлу (флаг или переменная окружения)
-	configPath := flags.flagConfigFile
-	if configPath == "" {
-		configPath = os.Getenv("CONFIG")
-	}
-
-	// Загружаем конфигурацию из файла
-	fileConfig, err := LoadServerConfig(configPath)
-	if err != nil {
-		return nil, err
-	}
-
-	// Создаем финальную конфигурацию с учетом приоритетов
-	config := &ServerConfig{}
-
-	// Устанавливаем значения из файла конфигурации
-	if fileConfig != nil {
-		*config = *fileConfig
-	}
-
-	// Переопределяем значения из флагов (высший приоритет)
-	if flags.flagRunAddr != "localhost:8080" || config.Address == "" {
-		config.Address = flags.flagRunAddr
-	}
-	if flags.flagRestore || !config.Restore && flags.flagRestore {
-		config.Restore = flags.flagRestore
-	}
-	if flags.flagStoreInterval != "300" || config.StoreInterval == "" {
-		config.StoreInterval = flags.flagStoreInterval
-	}
-	if flags.flagFileStoragePath != "server_backup" || config.StoreFile == "" {
-		config.StoreFile = flags.flagFileStoragePath
-	}
-	if flags.flagDatabaseDSN != "" || config.DatabaseDSN == "" {
-		config.DatabaseDSN = flags.flagDatabaseDSN
-	}
-	if flags.flagCryptoKey != "" {
-		config.CryptoKey = flags.flagCryptoKey
-	}
-	if flags.flagKey != "" {
-		config.Key = flags.flagKey
-	}
-	if flags.flagAuditFile != "" {
-		config.AuditFile = flags.flagAuditFile
-	}
-	if flags.flagAuditURL != "" {
-		config.AuditURL = flags.flagAuditURL
-	}
-	if flags.flagUsePprof {
-		config.UsePprof = flags.flagUsePprof
-	}
-
-	// Проверяем переменные окружения (средний приоритет)
-	if envAddr := os.Getenv("ADDRESS"); envAddr != "" && flags.flagRunAddr == "localhost:8080" {
-		config.Address = envAddr
-	}
-	if envRestore := os.Getenv("RESTORE"); envRestore != "" && !flags.flagRestore {
-		config.Restore = envRestore == "true"
-	}
-	if envStoreInterval := os.Getenv("STORE_INTERVAL"); envStoreInterval != "" && flags.flagStoreInterval == "300" {
-		config.StoreInterval = envStoreInterval
-	}
-	if envStoreFile := os.Getenv("STORE_FILE"); envStoreFile != "" && flags.flagFileStoragePath == "server_backup" {
-		config.StoreFile = envStoreFile
-	}
-	if envDatabaseDSN := os.Getenv("DATABASE_DSN"); envDatabaseDSN != "" && flags.flagDatabaseDSN == "" {
-		config.DatabaseDSN = envDatabaseDSN
-	}
-	if envCryptoKey := os.Getenv("CRYPTO_KEY"); envCryptoKey != "" && flags.flagCryptoKey == "" {
-		config.CryptoKey = envCryptoKey
-	}
-
-	return config, nil
+	// Явные привязки для сложных случаев (опционально)
+	v.BindEnv("address", "ADDRESS")
+	v.BindEnv("restore", "RESTORE")
+	v.BindEnv("store_interval", "STORE_INTERVAL")
+	v.BindEnv("store_file", "STORE_FILE")
+	v.BindEnv("database_dsn", "DATABASE_DSN")
+	v.BindEnv("crypto_key", "CRYPTO_KEY")
+	v.BindEnv("key", "KEY")
+	v.BindEnv("audit_file", "AUDIT_FILE")
+	v.BindEnv("audit_url", "AUDIT_URL")
+	v.BindEnv("use_pprof", "USE_PPROF")
+	v.BindEnv("config", "CONFIG")
 }

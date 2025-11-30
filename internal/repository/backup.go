@@ -5,22 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"sync"
+	"time"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	models "github.com/tladugin/yaProject.git/internal/models"
-	"log"
-	"os"
-	"os/signal"
-	"sync"
-	"syscall"
-	"time"
 )
 
-// generate:reset
 // Consumer отвечает за чтение данных из файла бэкапа
 type Consumer struct {
-	file   *os.File      // Файл для чтения
-	reader *bufio.Reader // Буферизованный reader для эффективного чтения
+	file   *os.File
+	reader *bufio.Reader
 }
 
 // NewConsumer создает новый экземпляр Consumer для чтения бэкапов
@@ -32,7 +29,7 @@ func NewConsumer(filename string) (*Consumer, error) {
 
 	return &Consumer{
 		file:   file,
-		reader: bufio.NewReader(file), // Инициализация буферизованного чтения
+		reader: bufio.NewReader(file),
 	}, nil
 }
 
@@ -46,13 +43,11 @@ func (c *Consumer) ReadEvent() (*models.Metrics, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	// Чтение данных до символа новой строки
 	data, err := c.reader.ReadBytes('\n')
 	if err != nil {
 		return nil, err
 	}
 
-	// Декодирование JSON данных в структуру Metrics
 	event := models.Metrics{}
 	err = json.Unmarshal(data, &event)
 	if err != nil {
@@ -64,8 +59,8 @@ func (c *Consumer) ReadEvent() (*models.Metrics, error) {
 
 // Producer отвечает за запись данных в файл бэкапа
 type Producer struct {
-	file   *os.File      // Файл для записи
-	writer *bufio.Writer // Буферизованный writer для эффективной записи
+	file   *os.File
+	writer *bufio.Writer
 }
 
 // NewProducer создает новый экземпляр Producer для записи бэкапов
@@ -77,7 +72,7 @@ func NewProducer(filename string) (*Producer, error) {
 
 	return &Producer{
 		file:   file,
-		writer: bufio.NewWriter(file), // Инициализация буферизованной записи
+		writer: bufio.NewWriter(file),
 	}, nil
 }
 
@@ -91,51 +86,36 @@ func (p *Producer) WriteEvent(event *models.Metrics) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	// Кодирование структуры в JSON
 	data, err := json.Marshal(&event)
 	if err != nil {
 		return err
 	}
 
-	// Запись события в буфер
 	if _, err := p.writer.Write(data); err != nil {
 		return err
 	}
 
-	// Добавление переноса строки для разделения записей
 	if err := p.writer.WriteByte('\n'); err != nil {
 		return err
 	}
 
-	// Сброс буфера в файл
 	return p.writer.Flush()
 }
 
 // RestoreFromBackup восстанавливает данные хранилища из файла бэкапа
-func RestoreFromBackup(storage *MemStorage, flagFileStoragePath string) {
-	// Создание потребителя для чтения бэкапа
+func RestoreFromBackup(storage *MemStorage, flagFileStoragePath string) error {
 	consumer, err := NewConsumer(flagFileStoragePath)
 	if err != nil {
-		logger.Sugar.Error("Failed to create consumer: ", err)
-		return
+		return fmt.Errorf("failed to create consumer: %w", err)
 	}
-	defer func(consumer *Consumer) {
-		err = consumer.Close()
-		if err != nil {
-			logger.Sugar.Error("Failed to close consumer: ", err)
-		}
-	}(consumer)
+	defer consumer.Close()
 
-	// Чтение первой записи
 	event, err := consumer.ReadEvent()
 	if err != nil {
-		logger.Sugar.Error("Failed to read event: ", err)
-		return
+		return fmt.Errorf("failed to read event: %w", err)
 	}
 
-	// Цикл чтения всех записей из бэкапа
 	for event != nil {
-		// Восстановление метрик в зависимости от типа
 		switch event.MType {
 		case "gauge":
 			storage.AddGauge(event.ID, *event.Value)
@@ -143,7 +123,6 @@ func RestoreFromBackup(storage *MemStorage, flagFileStoragePath string) {
 			storage.AddCounter(event.ID, *event.Delta)
 		}
 
-		// Чтение следующей записи
 		event, err = consumer.ReadEvent()
 		if err != nil {
 			logger.Sugar.Info("Backup restore completed")
@@ -151,55 +130,47 @@ func RestoreFromBackup(storage *MemStorage, flagFileStoragePath string) {
 		}
 	}
 
-	// Логирование восстановленных gauge метрик
-	for m := range storage.GaugeSlice() {
-		logger.Sugar.Infoln(storage.GaugeSlice()[m].Name, storage.GaugeSlice()[m].Value)
-	}
-
-	// Логирование восстановленных counter метрик
-	for m := range storage.CounterSlice() {
-		logger.Sugar.Infoln(storage.CounterSlice()[m].Name, storage.CounterSlice()[m].Value)
-	}
+	return nil
 }
 
-// RunPeriodicBackup запускает периодическое создание бэкапов с заданным интервалом
-func RunPeriodicBackup(storage *MemStorage, producer *Producer, interval time.Duration, stop <-chan struct{}, flagFileStoragePath string) {
-	// Создание тикера для периодического выполнения
+// RunPeriodicBackupWithContext запускает периодическое создание бэкапов с контекстом
+func RunPeriodicBackupWithContext(ctx context.Context, storage *MemStorage, producer *Producer, interval time.Duration, filename string) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Основной цикл периодического бэкапа
 	for {
 		select {
-		case <-ticker.C:
-			// Выполнение бэкапа по таймеру
-			if err := performBackup(storage, producer, flagFileStoragePath); err != nil {
-				logger.Sugar.Error("Periodic backup failed: ", err)
-			} else {
-				logger.Sugar.Info("Periodic backup complete")
-			}
-		case <-stop:
-			// Завершение при получении сигнала остановки
+		case <-ctx.Done():
+			logger.Sugar.Info("Periodic backup stopped")
 			return
+		case <-ticker.C:
+			if err := performBackup(storage, producer, filename); err != nil {
+				logger.Sugar.Errorw("Periodic backup failed", "error", err)
+			} else {
+				logger.Sugar.Debug("Periodic backup complete")
+			}
 		}
 	}
 }
 
-// RunFinalBackup выполняет финальный бэкап при завершении работы приложения
-func RunFinalBackup(storage *MemStorage, producer *Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagFileStoragePath string) {
-	defer wg.Done()
-	<-stop // Ожидание сигнала остановки
-
+// RunFinalBackupWithContext выполняет финальный бэкап при завершении работы приложения
+func RunFinalBackupWithContext(ctx context.Context, storage *MemStorage, producer *Producer, filename string) {
+	<-ctx.Done()
 	logger.Sugar.Info("Starting final backup...")
 
-	// Выполнение финального бэкапа
-	if err := performBackup(storage, producer, flagFileStoragePath); err != nil {
-		logger.Sugar.Error("Final backup failed: ", err)
+	if err := performBackup(storage, producer, filename); err != nil {
+		logger.Sugar.Errorw("Final backup failed", "error", err)
+	} else {
+		logger.Sugar.Info("Final backup completed")
 	}
-	logger.Sugar.Info("Final backup completed")
 }
 
-// performBackup выполняет фактическое создание бэкапа в файловую систему
+// SaveBackup сохраняет бэкап (упрощенная версия performBackup)
+func SaveBackup(storage *MemStorage, producer *Producer, filename string) error {
+	return performBackup(storage, producer, filename)
+}
+
+// performBackup выполняет фактическое создание бэкапа
 func performBackup(storage *MemStorage, producer *Producer, flagFileStoragePath string) error {
 	var producerM sync.Mutex
 
@@ -207,32 +178,25 @@ func performBackup(storage *MemStorage, producer *Producer, flagFileStoragePath 
 	defer producerM.Unlock()
 
 	// Закрытие текущего продюсера
-	err := producer.Close()
-	if err != nil {
-		logger.Sugar.Error("Failed to close producer: ", err)
+	if err := producer.Close(); err != nil {
+		logger.Sugar.Errorw("Failed to close producer", "error", err)
 	}
 
 	// Удаление старого бэкапа если существует
 	oldBackup := flagFileStoragePath + "_old"
 	if err := os.Remove(oldBackup); err != nil && !os.IsNotExist(err) {
-		log.Println("No old backup file: ", err)
+		logger.Sugar.Debugw("No old backup file to remove", "error", err)
 	}
 
 	// Переименование текущего бэкапа в старый
-	err = os.Rename(flagFileStoragePath, oldBackup)
-	if err != nil {
-		return fmt.Errorf("failed to rename backup from %s to %s: %w", flagFileStoragePath, oldBackup, err)
+	if err := os.Rename(flagFileStoragePath, oldBackup); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to rename backup: %w", err)
 	}
 
-	// Удаление текущего файла бэкапа
-	if err := os.Remove(flagFileStoragePath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	// Создание нового продюсера (файл будет создан заново)
+	// Создание нового продюсера
 	newProducer, err := NewProducer(flagFileStoragePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create new producer: %w", err)
 	}
 
 	// Бэкап gauge метрик
@@ -243,7 +207,7 @@ func performBackup(storage *MemStorage, producer *Producer, flagFileStoragePath 
 			Value: &gauge.Value,
 		}
 		if err := newProducer.WriteEvent(&backup); err != nil {
-			return err
+			return fmt.Errorf("failed to write gauge metric: %w", err)
 		}
 	}
 
@@ -255,14 +219,14 @@ func performBackup(storage *MemStorage, producer *Producer, flagFileStoragePath 
 			Delta: &counter.Value,
 		}
 		if err := newProducer.WriteEvent(&backup); err != nil {
-			return err
+			return fmt.Errorf("failed to write counter metric: %w", err)
 		}
 	}
 
 	return nil
 }
 
-// performBackupToPostgres выполняет бэкап метрик в PostgreSQL базу данных
+// performBackupToPostgres выполняет бэкап метрик в PostgreSQL
 func performBackupToPostgres(storage *MemStorage, dbPool *pgxpool.Pool) error {
 	var mu sync.Mutex
 	ctx := context.Background()
@@ -270,14 +234,13 @@ func performBackupToPostgres(storage *MemStorage, dbPool *pgxpool.Pool) error {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Начинаем транзакцию для атомарности операций
 	tx, err := dbPool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	// Очищаем существующие данные (опционально, можно пропустить если нужно накапливать)
+	// Очищаем существующие данные
 	if _, err := tx.Exec(ctx, "TRUNCATE TABLE gauges, counters"); err != nil {
 		return fmt.Errorf("failed to truncate tables: %w", err)
 	}
@@ -285,12 +248,9 @@ func performBackupToPostgres(storage *MemStorage, dbPool *pgxpool.Pool) error {
 	// Бэкап gauge метрик
 	for _, gauge := range storage.GaugeSlice() {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO gauges (name, value) 
-			VALUES ($1, $2)
-			ON CONFLICT (name) DO UPDATE 
-			SET value = EXCLUDED.value, updated_at = NOW()`,
-			gauge.Name,
-			gauge.Value,
+			`INSERT INTO gauges (name, value) VALUES ($1, $2)
+			 ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+			gauge.Name, gauge.Value,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to backup gauge %s: %w", gauge.Name, err)
@@ -300,45 +260,19 @@ func performBackupToPostgres(storage *MemStorage, dbPool *pgxpool.Pool) error {
 	// Бэкап counter метрик
 	for _, counter := range storage.CounterSlice() {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO counters (name, value) 
-			VALUES ($1, $2)
-			ON CONFLICT (name) DO UPDATE 
-			SET value = counters.value + EXCLUDED.value, updated_at = NOW()`,
-			counter.Name,
-			counter.Value,
+			`INSERT INTO counters (name, value) VALUES ($1, $2)
+			 ON CONFLICT (name) DO UPDATE SET value = counters.value + EXCLUDED.value, updated_at = NOW()`,
+			counter.Name, counter.Value,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to backup counter %s: %w", counter.Name, err)
 		}
 	}
 
-	// Фиксируем транзакцию
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	logger.Sugar.Info("Successfully backed up metrics to PostgreSQL")
 	return nil
-}
-
-// WaitForShutdown ожидает сигналов завершения работы приложения
-func WaitForShutdown(stop chan<- struct{}) {
-	// Канал для получения сигналов ОС
-	shutdown := make(chan os.Signal, 1)
-	signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
-
-	// Ожидание сигнала завершения
-	sig := <-shutdown
-	logger.Sugar.Infof("Received signal: %v. Initiating graceful shutdown...", sig)
-
-	// Даем время для завершения обработки текущих запросов
-	logger.Sugar.Info("Waiting for ongoing requests to complete...")
-
-	// Закрываем канал для уведомления всех горутин о необходимости завершения
-	close(stop)
-
-	// Дополнительная небольшая задержка для гарантии обработки сигнала
-	time.Sleep(500 * time.Millisecond)
-
-	logger.Sugar.Info("Shutdown signal processed successfully")
 }

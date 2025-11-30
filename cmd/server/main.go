@@ -1,117 +1,135 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"github.com/tladugin/yaProject.git/internal/server"
-	"log"
-	"net/http"
-	_ "net/http/pprof" // подключаем пакет pprof для профилирования
-	"sync"
-	"time"
+	_ "net/http/pprof"
 )
 
-// Глобальная переменная для ошибок
-var err error
-
-// main - основная функция приложения, точка входа
 func main() {
-
 	// Вывод информации о сборке
 	server.PrintBuildInfo()
+
+	// Инициализация логгера
+	sugar, err := logger.InitLogger()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sugar.Sync()
+
+	// Создаем контекст для graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+		syscall.SIGINT,
+		syscall.SIGQUIT)
+	defer stop()
 
 	config, err := GetServerConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Парсинг флагов командной строки
-	//flags := parseFlags()
-
-	// Запуск pprof сервера для профилирования если включен
+	// Запуск pprof сервера (если включен)
 	if config.UsePprof {
 		go func() {
-			fmt.Println("Starting pprof server on :6060")
-			// Запуск HTTP сервера для сбора профилей производительности
-			if err := http.ListenAndServe(":6060", nil); err != nil {
-				logger.Sugar.Error("Pprof server error: ", err)
+			sugar.Info("Starting pprof server on :6060")
+			if err := http.ListenAndServe(":6060", nil); err != nil && err != http.ErrServerClosed {
+				sugar.Errorw("Pprof server error", "error", err)
 			}
 		}()
 	}
 
-	// Инициализация логгера для структурированного логирования
-	logger.Sugar, err = logger.InitLogger()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		// Безопасное закрытие логгера при завершении программы
-		_ = logger.Sugar.Sync()
-	}()
-
-	// Проверка успешной инициализации логгера
-	if logger.Sugar == nil {
-		log.Fatal("Logger initialization failed")
-	}
-
-	// Инициализация криптографии - загрузка приватного ключа для расшифровки
+	// Инициализация криптографии
 	if config.CryptoKey != "" {
-		err := server.LoadPrivateKey(config.CryptoKey)
-		if err != nil {
-			logger.Sugar.Fatal("Failed to load private key: ", err)
+		if err := server.LoadPrivateKey(config.CryptoKey); err != nil {
+			sugar.Fatalw("Failed to load private key", "error", err)
 		}
-		logger.Sugar.Info("Private key loaded successfully")
+		sugar.Info("Private key loaded successfully")
 	}
 
-	// Создание in-memory хранилища для метрик
+	// Создание хранилища
 	storage := repository.NewMemStorage()
 
-	// Восстановление данных из файла бэкапа если включена опция restore
+	// Восстановление данных из бэкапа
 	if config.Restore {
-		repository.RestoreFromBackup(storage, config.StoreFile)
+		if err := repository.RestoreFromBackup(storage, config.StoreFile); err != nil {
+			sugar.Errorw("Failed to restore from backup", "error", err)
+		} else {
+			sugar.Info("Data restored from backup successfully")
+		}
 	}
 
-	// Инициализация продюсера для записи бэкапов
+	// Инициализация продюсера для бэкапов
 	producer, err := repository.NewProducer(config.StoreFile)
 	if err != nil {
-		logger.Sugar.Fatal("Could not open backup file: ", err)
+		sugar.Fatalw("Could not open backup file", "error", err)
 	}
+	defer producer.Close()
 
-	// Парсинг интервала сохранения из строки в Duration
-	storeInterval, err := time.ParseDuration(config.StoreInterval + "s")
-	if err != nil {
-		logger.Sugar.Fatal("Invalid store interval: ", err)
-	}
-
-	// Канал для graceful shutdown - уведомляет все горутины о необходимости завершения
+	// Канал для graceful shutdown
 	stopProgram := make(chan struct{})
-	var wg sync.WaitGroup // WaitGroup для ожидания завершения всех горутин
+	var wg sync.WaitGroup
 
-	// Запуск фоновых задач в отдельных горутинах
-
-	// Запуск периодического бэкапа если интервал не равен 0 (не синхронный режим)
-	if config.StoreInterval != "0" {
+	// Запуск периодического бэкапа если не синхронный режим
+	if config.StoreInterval != 0 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// Запуск периодического создания бэкапов с заданным интервалом
-			repository.RunPeriodicBackup(storage, producer, storeInterval, stopProgram, config.StoreFile)
+			repository.RunPeriodicBackupWithContext(ctx, storage, producer, time.Duration(config.StoreInterval)*time.Second, config.StoreFile)
 		}()
 	}
 
-	// Запуск горутины для финального бэкапа при завершении программы
+	// Запуск горутины для финального бэкапа
 	wg.Add(1)
-	go repository.RunFinalBackup(storage, producer, stopProgram, &wg, config.StoreFile)
+	go func() {
+		defer wg.Done()
+		repository.RunFinalBackupWithContext(ctx, storage, producer, config.StoreFile)
+	}()
 
-	// Запуск основного HTTP сервера для обработки запросов метрик
+	// Запуск HTTP сервера
 	wg.Add(1)
-	go server.RunHTTPServer(storage, producer, stopProgram, &wg, config.StoreInterval, &config.Address, &config.DatabaseDSN, &config.Key, &config.AuditFile, &config.AuditURL)
+	go server.RunHTTPServer(
+		storage,
+		producer,
+		ctx,
+		&wg,
+		config.StoreInterval,
+		&config.Address,
+		&config.DatabaseDSN,
+		&config.Key,
+		&config.AuditFile,
+		&config.AuditURL,
+	)
 
-	// Ожидание сигнала завершения (SIGTERM, SIGINT)
-	repository.WaitForShutdown(stopProgram)
+	sugar.Info("Server started. Press Ctrl+C to stop.")
 
-	// Ожидание завершения всех горутин
+	// Ожидаем сигнал завершения
+	<-ctx.Done()
+	sugar.Info("Received shutdown signal")
+
+	// Инициируем graceful shutdown
+	close(stopProgram)
+
+	// Сохраняем финальный бэкап
+	sugar.Info("Saving final backup...")
+	if err := repository.SaveBackup(storage, producer, config.StoreFile); err != nil {
+		sugar.Errorw("Failed to save final backup", "error", err)
+	} else {
+		sugar.Info("Final backup saved successfully")
+	}
+
+	// Ждем завершения всех горутин
 	wg.Wait()
-	logger.Sugar.Info("Application shutdown complete")
+	sugar.Info("Application shutdown complete")
 }

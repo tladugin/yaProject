@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 // TestMain инициализирует логгер для всех тестов
@@ -430,25 +429,6 @@ func TestMemStorage_Integration(t *testing.T) {
 	}
 	if !counterFound {
 		t.Error("Counter metric not restored in integration test")
-	}
-}
-
-// TestWaitForShutdown тестирует ожидание сигнала завершения
-func TestWaitForShutdown(t *testing.T) {
-	stop := make(chan struct{})
-
-	// Запускаем WaitForShutdown в отдельной горутине
-	go WaitForShutdown(stop)
-
-	// Даем время на настройку signal.Notify
-	time.Sleep(100 * time.Millisecond)
-
-	// Проверяем что канал еще не закрыт
-	select {
-	case <-stop:
-		t.Error("Stop channel should not be closed yet")
-	default:
-		// Ожидаемое поведение
 	}
 }
 

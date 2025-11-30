@@ -61,7 +61,6 @@ func CollectSystemMetricsWithContext(ctx context.Context, storage *repository.Me
 	}
 }
 
-// ReportMetricsWithContext отправляет метрики на сервер с учетом контекста
 func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64, FlagCryptoKey string) error {
 	sugar.Info("Starting metrics reporting")
 	defer sugar.Info("Metrics reporting stopped")
@@ -76,29 +75,22 @@ func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorag
 		case <-ticker.C:
 			sugar.Debug("Sending metrics...")
 
-			// Используем канал для синхронизации отправки
-			done := make(chan error, 1)
-
-			// Отправка метрик через пул воркеров с ограничением скорости
+			// Простая отправка через worker pool
 			workerPool.Submit(func() {
-				err := repository.SendWithRetry(serverURL+"/updates", storage, key, *pollCounter, FlagCryptoKey)
-				done <- err
-			})
-
-			// Ждем завершения отправки или отмены контекста
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case err := <-done:
-				if err != nil {
-					sugar.Errorf("Error sending metrics: %v", err)
-					// Не возвращаем ошибку, продолжаем работу
-				} else {
-					// Сброс счетчика опросов после успешной отправки
-					*pollCounter = 0
-					sugar.Debug("Metrics sent successfully")
+				// Проверяем контекст внутри задачи
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					err := SendWithRetry(serverURL+"/updates", storage, key, *pollCounter, FlagCryptoKey)
+					if err != nil && err != context.Canceled {
+						sugar.Errorf("Error sending metrics: %v", err)
+					} else if err == nil {
+						*pollCounter = 0
+						sugar.Debug("Metrics sent successfully")
+					}
 				}
-			}
+			})
 		}
 	}
 }

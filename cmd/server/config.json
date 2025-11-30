@@ -1,0 +1,12 @@
+{
+  "address": "localhost:8080",
+  "restore": true,
+  "store_interval": "300",
+  "store_file": "server_backup",
+  "database_dsn": "",
+  "crypto_key": "",
+  "key": "secret-key",
+  "audit_file": "",
+  "audit_url": "",
+  "use_pprof": false
+}

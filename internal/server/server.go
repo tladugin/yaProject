@@ -1,21 +1,40 @@
 package server
 
 import (
+	"context"
 	"github.com/go-chi/chi/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
+	"log"
 	"net/http"
 	"sync"
 )
 
+// Глобальные переменные для информации о сборке
+var (
+	buildVersion string
+	buildDate    string
+	buildCommit  string
+)
+
 // RunHTTPServer запускает HTTP сервер для работы с метриками
-func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer, stop <-chan struct{}, wg *sync.WaitGroup, flagStoreInterval string, flagRunAddr *string, flagDatabaseDSN *string, flagKey *string, flagAuditFile *string, flagAuditURL *string) {
+func RunHTTPServer(
+	storage *repository.MemStorage,
+	producer *repository.Producer,
+	ctx context.Context, // ИЗМЕНЕНО: контекст вместо канала
+	wg *sync.WaitGroup,
+	flagStoreInterval int,
+	flagRunAddr *string,
+	flagDatabaseDSN *string,
+	flagKey *string,
+	flagAuditFile *string,
+	flagAuditURL *string,
+) {
 	defer wg.Done()
 
 	// Создаем менеджер аудита для отслеживания операций
-
 	auditManager := NewAuditManager(true)
 	defer auditManager.Close()
 
@@ -55,6 +74,7 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 
 	// Регистрация middleware компонентов
 	r.Use(
+		DecryptMiddleware,                   // Расшифровывание запросов
 		repository.GzipMiddleware,           // Сжатие ответов
 		logger.LoggingAnswer(logger.Sugar),  // Логирование ответов
 		logger.LoggingRequest(logger.Sugar), // Логирование запросов
@@ -82,7 +102,7 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 			r.Post("/updates/", s.UpdatesGaugesBatch)                // Альтернативный путь пакетного обновления
 
 			// Выбор режима бэкапа в зависимости от интервала
-			if flagStoreInterval == "0" {
+			if flagStoreInterval == 0 {
 				logger.Sugar.Info("Running in sync backup mode")
 				r.Post("/update", sSync.PostUpdateSyncBackup)  // Синхронный бэкап после каждого обновления
 				r.Post("/update/", sSync.PostUpdateSyncBackup) // Альтернативный путь синхронного обновления
@@ -99,13 +119,13 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 
 	// Настройка HTTP сервера
 	server := &http.Server{
-		Addr:    *flagRunAddr, // Адрес и порт для прослушивания
-		Handler: r,            // Настроенный маршрутизатор
+		Addr:    *flagRunAddr,
+		Handler: r,
 	}
 
 	// Горутина для graceful shutdown
 	go func() {
-		<-stop // Ожидание сигнала остановки
+		<-ctx.Done() // ИЗМЕНЕНО: ждем отмены контекста
 		logger.Sugar.Info("Shutting down HTTP server...")
 		if err := server.Close(); err != nil {
 			logger.Sugar.Error("HTTP server shutdown error: ", err)
@@ -117,4 +137,23 @@ func RunHTTPServer(storage *repository.MemStorage, producer *repository.Producer
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Sugar.Error("Server failed: ", err)
 	}
+}
+
+// printBuildInfo выводит информацию о сборке
+func PrintBuildInfo() {
+	// Устанавливаем "N/A" если значения не заданы
+	if buildVersion == "" {
+		buildVersion = "N/A"
+	}
+	if buildDate == "" {
+		buildDate = "N/A"
+	}
+	if buildCommit == "" {
+		buildCommit = "N/A"
+	}
+
+	// Вывод в формате согласно требованиям
+	log.Printf("Build version: %s", buildVersion)
+	log.Printf("Build date: %s", buildDate)
+	log.Printf("Build commit: %s", buildCommit)
 }

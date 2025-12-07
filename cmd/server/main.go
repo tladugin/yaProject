@@ -40,6 +40,18 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Инициализация проверки IP
+	ipChecker, err := server.NewIPChecker(config.TrustedSubnet)
+	if err != nil {
+		sugar.Fatalw("Failed to initialize IP checker", "error", err)
+	}
+
+	if config.TrustedSubnet != "" {
+		sugar.Infow("IP checking enabled", "trusted_subnet", config.TrustedSubnet)
+	} else {
+		sugar.Info("IP checking disabled (no trusted subnet specified)")
+	}
+
 	// Запуск pprof сервера (если включен)
 	if config.UsePprof {
 		go func() {
@@ -110,6 +122,7 @@ func main() {
 		&config.Key,
 		&config.AuditFile,
 		&config.AuditURL,
+		ipChecker,
 	)
 
 	sugar.Info("Server started. Press Ctrl+C to stop.")

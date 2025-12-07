@@ -17,6 +17,7 @@ type Flags struct {
 	FlagUsePprof           bool
 	FlagCryptoKey          string
 	FlagConfigFile         string
+	FlagLocalIP            string
 }
 
 type AgentConfig struct {
@@ -27,6 +28,7 @@ type AgentConfig struct {
 	RateLimit      int    `json:"rate_limit"`
 	UsePprof       bool   `json:"use_pprof"`
 	CryptoKey      string `json:"crypto_key"`
+	LocalIP        string `json:"local_ip"`
 }
 
 // parseFlags обрабатывает аргументы командной строки
@@ -43,6 +45,7 @@ func ParseFlags() *Flags {
 	flag.StringVar(&f.FlagCryptoKey, "crypto-key", "", "path to public key for encryption")
 	flag.StringVar(&f.FlagConfigFile, "c", "", "path to config file")
 	flag.StringVar(&f.FlagConfigFile, "config", "", "path to config file")
+	flag.StringVar(&f.FlagLocalIP, "ip", "", "local IP address to send in X-Real-IP header")
 
 	flag.Parse()
 
@@ -72,6 +75,11 @@ func ParseFlags() *Flags {
 
 	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok {
 		f.FlagCryptoKey = envCryptoKey
+	}
+
+	// Новая переменная окружения для IP
+	if envLocalIP, ok := os.LookupEnv("LOCAL_IP"); ok {
+		f.FlagLocalIP = envLocalIP
 	}
 
 	return &f
@@ -144,6 +152,9 @@ func GetAgentConfig() (*AgentConfig, error) {
 	if flags.FlagCryptoKey != "" {
 		config.CryptoKey = flags.FlagCryptoKey
 	}
+	if flags.FlagLocalIP != "" {
+		config.LocalIP = flags.FlagLocalIP
+	}
 
 	// Проверяем переменные окружения (средний приоритет)
 	// Используем LookupEnv для точного контроля
@@ -166,6 +177,9 @@ func GetAgentConfig() (*AgentConfig, error) {
 	}
 	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok && flags.FlagCryptoKey == "" {
 		config.CryptoKey = envCryptoKey
+	}
+	if envLocalIP, ok := os.LookupEnv("LOCAL_IP"); ok && flags.FlagLocalIP == "" {
+		config.LocalIP = envLocalIP
 	}
 
 	// Устанавливаем значения по умолчанию если не установлены

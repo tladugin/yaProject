@@ -44,6 +44,10 @@ func main() {
 	var pollCounter int64 = 0
 	storage.AddCounter("PollCount", 0)
 
+	// Получаем локальный IP-адрес для отправки в заголовке X-Real-IP
+	localIP := agent.GetLocalIPWithFallback()
+	sugar.Infow("Agent IP address", "ip", localIP)
+
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
@@ -55,7 +59,7 @@ func main() {
 	})
 
 	g.Go(func() error {
-		return agent.ReportMetricsWithContext(ctx, storage, config.Address, config.Key, reportDuration, workerPool, sugar, &pollCounter, config.CryptoKey)
+		return agent.ReportMetricsWithContext(ctx, storage, config.Address, config.Key, reportDuration, workerPool, sugar, &pollCounter, config.CryptoKey, config.LocalIP)
 	})
 
 	sugar.Info("Agent started. Press Ctrl+C to stop.")

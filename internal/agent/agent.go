@@ -61,7 +61,7 @@ func CollectSystemMetricsWithContext(ctx context.Context, storage *repository.Me
 	}
 }
 
-func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64, FlagCryptoKey string) error {
+func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64, FlagCryptoKey string, localIP string) error {
 	sugar.Info("Starting metrics reporting")
 	defer sugar.Info("Metrics reporting stopped")
 
@@ -82,7 +82,7 @@ func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorag
 				case <-ctx.Done():
 					return
 				default:
-					err := SendWithRetry(serverURL+"/updates", storage, key, *pollCounter, FlagCryptoKey)
+					err := SendWithRetry(serverURL+"/updates", storage, key, *pollCounter, FlagCryptoKey, localIP)
 					if err != nil && err != context.Canceled {
 						sugar.Errorf("Error sending metrics: %v", err)
 					} else if err == nil {

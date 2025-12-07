@@ -19,6 +19,7 @@ type ServerConfig struct {
 	AuditFile     string `mapstructure:"audit_file"`
 	AuditURL      string `mapstructure:"audit_url"`
 	UsePprof      bool   `mapstructure:"use_pprof"`
+	TrustedSubnet string `mapstructure:"trusted_subnet"`
 }
 
 func GetServerConfig() (*ServerConfig, error) {
@@ -54,17 +55,18 @@ func GetServerConfig() (*ServerConfig, error) {
 // setDefaults устанавливает значения по умолчанию
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("address", "localhost:8080")
-	v.SetDefault("store_interval", "300")
+	v.SetDefault("store_interval", 300)
 	v.SetDefault("store_file", "server_backup")
 	v.SetDefault("restore", false)
 	v.SetDefault("use_pprof", false)
+	v.SetDefault("trusted_subnet", "")
 }
 
 // setupFlags настраивает флаги
 func setupFlags(v *viper.Viper) {
 	// Создаем pflag set
 	pflag.StringP("address", "a", "localhost:8080", "address and port to run server")
-	pflag.StringP("store_interval", "i", "300", "saving server data interval")
+	pflag.IntP("store_interval", "i", 300, "saving server data interval in seconds") // Исправлено: Int вместо String
 	pflag.StringP("store_file", "f", "server_backup", "path for server backup file")
 	pflag.BoolP("restore", "r", false, "restore server data")
 	pflag.StringP("database_dsn", "d", "", "database DSN")
@@ -74,6 +76,7 @@ func setupFlags(v *viper.Viper) {
 	pflag.Bool("pprof", false, "use benchmark")
 	pflag.String("crypto-key", "", "path to private key for decryption")
 	pflag.StringP("config", "c", "", "path to config file")
+	pflag.StringP("trusted-subnet", "t", "", "trusted subnet in CIDR notation")
 
 	// Привязываем флаги к Viper
 	v.BindPFlags(pflag.CommandLine)
@@ -89,7 +92,7 @@ func setupEnv(v *viper.Viper) {
 	v.SetEnvPrefix("METRICS") // Префикс для переменных окружения
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	// Явные привязки для сложных случаев (опционально)
+	// Явные привязки для сложных случаев
 	v.BindEnv("address", "ADDRESS")
 	v.BindEnv("restore", "RESTORE")
 	v.BindEnv("store_interval", "STORE_INTERVAL")
@@ -101,4 +104,5 @@ func setupEnv(v *viper.Viper) {
 	v.BindEnv("audit_url", "AUDIT_URL")
 	v.BindEnv("use_pprof", "USE_PPROF")
 	v.BindEnv("config", "CONFIG")
+	v.BindEnv("trusted_subnet", "TRUSTED_SUBNET") // Добавлена привязка для trusted_subnet
 }

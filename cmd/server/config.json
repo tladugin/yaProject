@@ -8,5 +8,6 @@
   "key": "secret-key",
   "audit_file": "",
   "audit_url": "",
-  "use_pprof": false
+  "use_pprof": false,
+  "trusted_subnet": ""
 }

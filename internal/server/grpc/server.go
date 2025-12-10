@@ -107,8 +107,8 @@ func checkIPInSubnet(ipStr, cidr string) (bool, error) {
 	return ipnet.Contains(ip), nil
 }
 
-// RunGRPCServer запускает gRPC сервер
-func RunGRPCServer(storage *repository.MemStorage, address string, trustedSubnet string) error {
+// RunGRPCServer запускает gRPC сервер с поддержкой graceful shutdown
+func RunGRPCServer(storage *repository.MemStorage, address string, trustedSubnet string, ctx context.Context) error {
 	lis, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
@@ -125,9 +125,23 @@ func RunGRPCServer(storage *repository.MemStorage, address string, trustedSubnet
 
 	log.Printf("gRPC server listening on %s", address)
 
-	if err := s.Serve(lis); err != nil {
-		return fmt.Errorf("failed to serve: %w", err)
-	}
+	// Запускаем сервер в отдельной горутине
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			serverErr <- err
+		}
+		close(serverErr)
+	}()
 
-	return nil
+	// Ждем сигнала завершения или ошибки сервера
+	select {
+	case <-ctx.Done():
+		log.Println("Shutting down gRPC server...")
+		s.GracefulStop()
+		log.Println("gRPC server stopped")
+		return nil
+	case err := <-serverErr:
+		return fmt.Errorf("gRPC server error: %w", err)
+	}
 }

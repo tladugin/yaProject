@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"github.com/tladugin/yaProject.git/internal/server/grpc"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"github.com/tladugin/yaProject.git/internal/server"
+	"github.com/tladugin/yaProject.git/internal/server/grpc"
 	_ "net/http/pprof"
 )
 
@@ -42,9 +42,13 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	var wg sync.WaitGroup
+
 	// Запуск pprof сервера (если включен)
 	if config.UsePprof {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			sugar.Info("Starting pprof server on :6060")
 			if err := http.ListenAndServe(":6060", nil); err != nil && err != http.ErrServerClosed {
 				sugar.Errorw("Pprof server error", "error", err)
@@ -91,10 +95,6 @@ func main() {
 		sugar.Info("IP checking disabled (no trusted subnet specified)")
 	}
 
-	// Канал для graceful shutdown
-	stopProgram := make(chan struct{})
-	var wg sync.WaitGroup
-
 	// Запуск периодического бэкапа если не синхронный режим
 	if config.StoreInterval != 0 {
 		wg.Add(1)
@@ -116,7 +116,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		sugar.Infow("Starting gRPC server", "address", config.GRPCAddress)
-		if err := grpc.RunGRPCServer(storage, config.GRPCAddress, config.TrustedSubnet); err != nil {
+		if err := grpc.RunGRPCServer(storage, config.GRPCAddress, config.TrustedSubnet, ctx); err != nil {
 			sugar.Errorw("gRPC server error", "error", err)
 		}
 	}()
@@ -143,10 +143,7 @@ func main() {
 	<-ctx.Done()
 	sugar.Info("Received shutdown signal")
 
-	// Инициируем graceful shutdown
-	close(stopProgram)
-
-	// Сохраняем финальный бэкап
+	// Сохраняем финальный бэкап (синхронно)
 	sugar.Info("Saving final backup...")
 	if err := repository.SaveBackup(storage, producer, config.StoreFile); err != nil {
 		sugar.Errorw("Failed to save final backup", "error", err)

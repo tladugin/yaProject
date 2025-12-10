@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/tladugin/yaProject.git/internal/server/grpc"
 	"log"
 	"net/http"
 	"os"
@@ -35,21 +36,10 @@ func main() {
 		syscall.SIGQUIT)
 	defer stop()
 
+	// Получаем конфигурацию
 	config, err := GetServerConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	// Инициализация проверки IP
-	ipChecker, err := server.NewIPChecker(config.TrustedSubnet)
-	if err != nil {
-		sugar.Fatalw("Failed to initialize IP checker", "error", err)
-	}
-
-	if config.TrustedSubnet != "" {
-		sugar.Infow("IP checking enabled", "trusted_subnet", config.TrustedSubnet)
-	} else {
-		sugar.Info("IP checking disabled (no trusted subnet specified)")
 	}
 
 	// Запуск pprof сервера (если включен)
@@ -89,6 +79,18 @@ func main() {
 	}
 	defer producer.Close()
 
+	// Инициализация проверки IP
+	ipChecker, err := server.NewIPChecker(config.TrustedSubnet)
+	if err != nil {
+		sugar.Fatalw("Failed to initialize IP checker", "error", err)
+	}
+
+	if config.TrustedSubnet != "" {
+		sugar.Infow("IP checking enabled", "trusted_subnet", config.TrustedSubnet)
+	} else {
+		sugar.Info("IP checking disabled (no trusted subnet specified)")
+	}
+
 	// Канал для graceful shutdown
 	stopProgram := make(chan struct{})
 	var wg sync.WaitGroup
@@ -107,6 +109,16 @@ func main() {
 	go func() {
 		defer wg.Done()
 		repository.RunFinalBackupWithContext(ctx, storage, producer, config.StoreFile)
+	}()
+
+	// Запуск gRPC сервера
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sugar.Infow("Starting gRPC server", "address", config.GRPCAddress)
+		if err := grpc.RunGRPCServer(storage, config.GRPCAddress, config.TrustedSubnet); err != nil {
+			sugar.Errorw("gRPC server error", "error", err)
+		}
 	}()
 
 	// Запуск HTTP сервера

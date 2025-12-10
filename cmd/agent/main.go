@@ -32,11 +32,7 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	workerPool, err := agent.NewWorkerPool(config.RateLimit)
-	if err != nil {
-		sugar.Fatal("Failed to create worker pool: ", err)
-	}
-
+	// Преобразуем интервалы
 	pollDuration, _ := time.ParseDuration(config.PollInterval + "s")
 	reportDuration, _ := time.ParseDuration(config.ReportInterval + "s")
 
@@ -44,9 +40,28 @@ func main() {
 	var pollCounter int64 = 0
 	storage.AddCounter("PollCount", 0)
 
-	// Получаем локальный IP-адрес для отправки в заголовке X-Real-IP
-	localIP := agent.GetLocalIPWithFallback()
-	sugar.Infow("Agent IP address", "ip", localIP)
+	// Получаем локальный IP-адрес
+	localIP := agent.GetLocalIPConfig(config)
+	if config.UseGRPC {
+		if localIP == "" {
+			sugar.Fatal("Local IP is required for gRPC mode")
+		}
+		sugar.Infow("Using gRPC mode",
+			"server", config.GRPCAddress,
+			"ip", localIP,
+		)
+	} else {
+		sugar.Infow("Using HTTP mode",
+			"server", config.Address,
+			"ip", localIP,
+		)
+		// Создаем worker pool только для HTTP режима
+		workerPool, err := agent.NewWorkerPool(config.RateLimit)
+		if err != nil {
+			sugar.Fatal("Failed to create worker pool: ", err)
+		}
+		defer workerPool.Shutdown()
+	}
 
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -58,9 +73,18 @@ func main() {
 		return agent.CollectSystemMetricsWithContext(ctx, storage, pollDuration, sugar)
 	})
 
-	g.Go(func() error {
-		return agent.ReportMetricsWithContext(ctx, storage, config.Address, config.Key, reportDuration, workerPool, sugar, &pollCounter, config.CryptoKey, config.LocalIP)
-	})
+	if config.UseGRPC {
+		g.Go(func() error {
+			return agent.ReportMetricsWithContext(ctx, storage, config, reportDuration, nil, sugar, &pollCounter, localIP)
+		})
+	} else {
+		workerPool, _ := agent.NewWorkerPool(config.RateLimit)
+		defer workerPool.Shutdown()
+
+		g.Go(func() error {
+			return agent.ReportMetricsWithContext(ctx, storage, config, reportDuration, workerPool, sugar, &pollCounter, localIP)
+		})
+	}
 
 	sugar.Info("Agent started. Press Ctrl+C to stop.")
 
@@ -70,6 +94,5 @@ func main() {
 		sugar.Info("Service shutdown by signal")
 	}
 
-	workerPool.Shutdown()
 	sugar.Info("Service shutdown completed successfully")
 }

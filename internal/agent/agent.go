@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/tladugin/yaProject.git/internal/agent/grpc"
 	"log"
 	"math/rand"
 	"runtime"
@@ -61,9 +62,34 @@ func CollectSystemMetricsWithContext(ctx context.Context, storage *repository.Me
 	}
 }
 
-func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorage, serverURL, key string, reportDuration time.Duration, workerPool *WorkerPool, sugar *zap.SugaredLogger, pollCounter *int64, FlagCryptoKey string, localIP string) error {
+// ReportMetricsWithContext отправляет метрики с учетом протокола (HTTP/gRPC)
+func ReportMetricsWithContext(
+	ctx context.Context,
+	storage *repository.MemStorage,
+	config *AgentConfig,
+	reportDuration time.Duration,
+	workerPool *WorkerPool,
+	sugar *zap.SugaredLogger,
+	pollCounter *int64,
+	localIP string,
+) error {
 	sugar.Info("Starting metrics reporting")
 	defer sugar.Info("Metrics reporting stopped")
+
+	// Инициализируем gRPC клиент если нужно
+	var grpcClient *grpc.GRPCClient
+	if config.UseGRPC {
+		client, err := grpc.NewGRPCClient(
+			config.GRPCAddress,
+			localIP,
+			30*time.Second,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create gRPC client: %w", err)
+		}
+		grpcClient = client
+		defer client.Close()
+	}
 
 	ticker := time.NewTicker(reportDuration)
 	defer ticker.Stop()
@@ -75,22 +101,33 @@ func ReportMetricsWithContext(ctx context.Context, storage *repository.MemStorag
 		case <-ticker.C:
 			sugar.Debug("Sending metrics...")
 
-			// Простая отправка через worker pool
-			workerPool.Submit(func() {
-				// Проверяем контекст внутри задачи
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					err := SendWithRetry(serverURL+"/updates", storage, key, *pollCounter, FlagCryptoKey, localIP)
-					if err != nil && err != context.Canceled {
-						sugar.Errorf("Error sending metrics: %v", err)
-					} else if err == nil {
-						*pollCounter = 0
-						sugar.Debug("Metrics sent successfully")
-					}
+			if config.UseGRPC {
+				// Отправляем через gRPC
+				err := grpcClient.SendWithRetry(storage, *pollCounter, 3)
+				if err != nil && err != context.Canceled {
+					sugar.Errorf("Error sending metrics via gRPC: %v", err)
+				} else if err == nil {
+					*pollCounter = 0
+					sugar.Debug("Metrics sent successfully via gRPC")
 				}
-			})
+			} else {
+				// Отправляем через HTTP (используем worker pool)
+				workerPool.Submit(func() {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						// Используем старую функцию SendWithRetry с добавленным параметром localIP
+						err := SendWithRetry(config.Address+"/updates", storage, config.Key, *pollCounter, config.CryptoKey, localIP)
+						if err != nil && err != context.Canceled {
+							sugar.Errorf("Error sending metrics via HTTP: %v", err)
+						} else if err == nil {
+							*pollCounter = 0
+							sugar.Debug("Metrics sent successfully via HTTP")
+						}
+					}
+				})
+			}
 		}
 	}
 }
@@ -158,7 +195,7 @@ func collectSystemMetrics(storage *repository.MemStorage) {
 	// Если произошла ошибка - метрики CPU не будут добавлены
 }
 
-// printBuildInfo выводит информацию о сборке
+// PrintBuildInfo выводит информацию о сборке
 func PrintBuildInfo() {
 	// Устанавливаем "N/A" если значения не заданы
 	if buildVersion == "" {
@@ -175,4 +212,22 @@ func PrintBuildInfo() {
 	log.Printf("Build version: %s", buildVersion)
 	log.Printf("Build date: %s", buildDate)
 	log.Printf("Build commit: %s", buildCommit)
+}
+
+// GetLocalIPConfig возвращает IP-адрес для использования в заголовке X-Real-IP
+func GetLocalIPConfig(config *AgentConfig) string {
+	// Если IP указан в конфигурации, используем его
+	if config.LocalIP != "" {
+		return config.LocalIP
+	}
+
+	// В противном случае пытаемся определить автоматически
+	ip, err := GetLocalIP()
+	if err != nil {
+		// Логируем ошибку, но продолжаем работу
+		log.Printf("Warning: Failed to get local IP: %v", err)
+		return "" // Возвращаем пустую строку, если не удалось определить
+	}
+
+	return ip
 }

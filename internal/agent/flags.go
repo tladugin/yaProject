@@ -1,197 +1,107 @@
 package agent
 
 import (
-	"encoding/json"
-	"flag"
 	"fmt"
-	"os"
-	"strconv"
+	"strings"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
-type Flags struct {
-	FlagRunAddr            string
-	FlagReportIntervalTime string
-	FlagPollIntervalTime   string
-	FlagKey                string
-	FlagRateLimit          int
-	FlagUsePprof           bool
-	FlagCryptoKey          string
-	FlagConfigFile         string
-	FlagLocalIP            string
-}
-
 type AgentConfig struct {
-	Address        string `json:"address"`
-	ReportInterval string `json:"report_interval"`
-	PollInterval   string `json:"poll_interval"`
-	Key            string `json:"key"`
-	RateLimit      int    `json:"rate_limit"`
-	UsePprof       bool   `json:"use_pprof"`
-	CryptoKey      string `json:"crypto_key"`
-	LocalIP        string `json:"local_ip"`
+	Address        string `mapstructure:"address"`
+	GRPCAddress    string `mapstructure:"grpc_address"`
+	UseGRPC        bool   `mapstructure:"use_grpc"`
+	ReportInterval string `mapstructure:"report_interval"`
+	PollInterval   string `mapstructure:"poll_interval"`
+	Key            string `mapstructure:"key"`
+	RateLimit      int    `mapstructure:"rate_limit"`
+	UsePprof       bool   `mapstructure:"use_pprof"`
+	CryptoKey      string `mapstructure:"crypto_key"`
+	LocalIP        string `mapstructure:"local_ip"`
 }
 
-// parseFlags обрабатывает аргументы командной строки
-func ParseFlags() *Flags {
-	var f Flags
+func GetAgentConfig() (*AgentConfig, error) {
+	// Инициализируем Viper
+	v := viper.New()
 
-	// Регистрируем флаги
-	flag.StringVar(&f.FlagRunAddr, "a", "localhost:8080", "address and port to run server")
-	flag.StringVar(&f.FlagReportIntervalTime, "r", "10", "time interval to report")
-	flag.StringVar(&f.FlagPollIntervalTime, "p", "2", "poll interval")
-	flag.StringVar(&f.FlagKey, "k", "", "key")
-	flag.IntVar(&f.FlagRateLimit, "l", 1, "rate limit (max concurrent requests)")
-	flag.BoolVar(&f.FlagUsePprof, "pprof", false, "use benchmark")
-	flag.StringVar(&f.FlagCryptoKey, "crypto-key", "", "path to public key for encryption")
-	flag.StringVar(&f.FlagConfigFile, "c", "", "path to config file")
-	flag.StringVar(&f.FlagConfigFile, "config", "", "path to config file")
-	flag.StringVar(&f.FlagLocalIP, "ip", "", "local IP address to send in X-Real-IP header")
+	// Устанавливаем значения по умолчанию
+	setDefaults(v)
 
-	flag.Parse()
+	// Настраиваем флаги
+	setupFlags(v)
 
-	// Обрабатываем переменные окружения с помощью LookupEnv
-	if envRunAddr, ok := os.LookupEnv("ADDRESS"); ok {
-		f.FlagRunAddr = envRunAddr
-	}
+	// Настраиваем переменные окружения
+	setupEnv(v)
 
-	if envReportInter, ok := os.LookupEnv("REPORT_INTERVAL"); ok {
-		f.FlagReportIntervalTime = envReportInter
-	}
-
-	if envPollInterval, ok := os.LookupEnv("POLL_INTERVAL"); ok {
-		f.FlagPollIntervalTime = envPollInterval
-	}
-
-	if envKey, ok := os.LookupEnv("KEY"); ok {
-		f.FlagKey = envKey
-	}
-
-	if envRateLimit, ok := os.LookupEnv("RATE_LIMIT"); ok {
-		if rateLimit, err := strconv.Atoi(envRateLimit); err == nil {
-			f.FlagRateLimit = rateLimit
+	// Загружаем конфигурацию из файла (если указан)
+	if configPath := v.GetString("config.json"); configPath != "" {
+		v.SetConfigFile(configPath)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("failed to read config file: %w", err)
 		}
-		// Если не удалось распарсить, оставляем значение по умолчанию
 	}
 
-	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok {
-		f.FlagCryptoKey = envCryptoKey
-	}
-
-	// Новая переменная окружения для IP
-	if envLocalIP, ok := os.LookupEnv("LOCAL_IP"); ok {
-		f.FlagLocalIP = envLocalIP
-	}
-
-	return &f
-}
-
-// LoadAgentConfig загружает конфигурацию агента из файла
-func LoadAgentConfig(configPath string) (*AgentConfig, error) {
-	if configPath == "" {
-		return &AgentConfig{}, nil
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
+	// Создаем и заполняем структуру конфигурации
 	var config AgentConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	if err := v.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
 	return &config, nil
 }
 
-// GetAgentConfig возвращает финальную конфигурацию агента с учетом приоритетов
-func GetAgentConfig() (*AgentConfig, error) {
-	flags := ParseFlags()
+// setDefaults устанавливает значения по умолчанию
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("address", "localhost:8080")
+	v.SetDefault("grpc_address", ":3200")
+	v.SetDefault("use_grpc", false)
+	v.SetDefault("report_interval", "10")
+	v.SetDefault("poll_interval", "2")
+	v.SetDefault("rate_limit", 1)
+	v.SetDefault("use_pprof", false)
+	v.SetDefault("local_ip", "")
+}
 
-	// Получаем путь к конфигурационному файлу (флаг или переменная окружения)
-	configPath := flags.FlagConfigFile
-	if configPath == "" {
-		if envConfig, ok := os.LookupEnv("CONFIG"); ok {
-			configPath = envConfig
-		}
-	}
+// setupFlags настраивает флаги
+func setupFlags(v *viper.Viper) {
+	// Создаем pflag set
+	pflag.StringP("address", "a", "localhost:8080", "address and port to run server")
+	pflag.String("grpc-address", ":3200", "gRPC server address")
+	pflag.Bool("use-grpc", false, "use gRPC instead of HTTP")
+	pflag.StringP("report_interval", "r", "10", "time interval to report")
+	pflag.StringP("poll_interval", "p", "2", "poll interval")
+	pflag.StringP("key", "k", "", "key")
+	pflag.IntP("rate_limit", "l", 1, "rate limit (max concurrent requests)")
+	pflag.Bool("pprof", false, "use benchmark")
+	pflag.String("crypto-key", "", "path to public key for encryption")
+	pflag.StringP("config", "c", "", "path to config file")
+	pflag.String("local-ip", "", "local IP address to send in X-Real-IP header")
 
-	// Загружаем конфигурацию из файла
-	fileConfig, err := LoadAgentConfig(configPath)
-	if err != nil {
-		return nil, err
-	}
+	// Привязываем флаги к Viper
+	v.BindPFlags(pflag.CommandLine)
 
-	// Создаем финальную конфигурацию
-	config := &AgentConfig{}
+	// Парсим флаги
+	pflag.Parse()
+}
 
-	// Устанавливаем значения из файла конфигурации
-	if fileConfig != nil {
-		*config = *fileConfig
-	}
+// setupEnv настраивает переменные окружения
+func setupEnv(v *viper.Viper) {
+	// Автоматическое связывание переменных окружения
+	v.AutomaticEnv()
+	v.SetEnvPrefix("METRICS") // Префикс для переменных окружения
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	// Переопределяем значения из флагов (высший приоритет)
-	if flags.FlagRunAddr != "localhost:8080" || config.Address == "" {
-		config.Address = flags.FlagRunAddr
-	}
-	if flags.FlagReportIntervalTime != "10" || config.ReportInterval == "" {
-		config.ReportInterval = flags.FlagReportIntervalTime
-	}
-	if flags.FlagPollIntervalTime != "2" || config.PollInterval == "" {
-		config.PollInterval = flags.FlagPollIntervalTime
-	}
-	if flags.FlagKey != "" {
-		config.Key = flags.FlagKey
-	}
-	if flags.FlagRateLimit != 1 {
-		config.RateLimit = flags.FlagRateLimit
-	}
-	if flags.FlagUsePprof {
-		config.UsePprof = flags.FlagUsePprof
-	}
-	if flags.FlagCryptoKey != "" {
-		config.CryptoKey = flags.FlagCryptoKey
-	}
-	if flags.FlagLocalIP != "" {
-		config.LocalIP = flags.FlagLocalIP
-	}
-
-	// Проверяем переменные окружения (средний приоритет)
-	// Используем LookupEnv для точного контроля
-	if envAddr, ok := os.LookupEnv("ADDRESS"); ok && flags.FlagRunAddr == "localhost:8080" {
-		config.Address = envAddr
-	}
-	if envReportInterval, ok := os.LookupEnv("REPORT_INTERVAL"); ok && flags.FlagReportIntervalTime == "10" {
-		config.ReportInterval = envReportInterval
-	}
-	if envPollInterval, ok := os.LookupEnv("POLL_INTERVAL"); ok && flags.FlagPollIntervalTime == "2" {
-		config.PollInterval = envPollInterval
-	}
-	if envKey, ok := os.LookupEnv("KEY"); ok && flags.FlagKey == "" {
-		config.Key = envKey
-	}
-	if envRateLimit, ok := os.LookupEnv("RATE_LIMIT"); ok && flags.FlagRateLimit == 1 {
-		if rateLimit, err := strconv.Atoi(envRateLimit); err == nil {
-			config.RateLimit = rateLimit
-		}
-	}
-	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok && flags.FlagCryptoKey == "" {
-		config.CryptoKey = envCryptoKey
-	}
-	if envLocalIP, ok := os.LookupEnv("LOCAL_IP"); ok && flags.FlagLocalIP == "" {
-		config.LocalIP = envLocalIP
-	}
-
-	// Устанавливаем значения по умолчанию если не установлены
-	if config.ReportInterval == "" {
-		config.ReportInterval = "10"
-	}
-	if config.PollInterval == "" {
-		config.PollInterval = "2"
-	}
-	if config.RateLimit == 0 {
-		config.RateLimit = 1
-	}
-
-	return config, nil
+	// Явные привязки для сложных случаев
+	v.BindEnv("address", "ADDRESS")
+	v.BindEnv("grpc_address", "GRPC_ADDRESS")
+	v.BindEnv("use_grpc", "USE_GRPC")
+	v.BindEnv("report_interval", "REPORT_INTERVAL")
+	v.BindEnv("poll_interval", "POLL_INTERVAL")
+	v.BindEnv("key", "KEY")
+	v.BindEnv("rate_limit", "RATE_LIMIT")
+	v.BindEnv("use_pprof", "USE_PPROF")
+	v.BindEnv("crypto_key", "CRYPTO_KEY")
+	v.BindEnv("config", "CONFIG")
+	v.BindEnv("local_ip", "LOCAL_IP")
 }

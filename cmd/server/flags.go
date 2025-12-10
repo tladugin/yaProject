@@ -20,6 +20,7 @@ type ServerConfig struct {
 	AuditURL      string `mapstructure:"audit_url"`
 	UsePprof      bool   `mapstructure:"use_pprof"`
 	TrustedSubnet string `mapstructure:"trusted_subnet"`
+	GRPCAddress   string `mapstructure:"grpc_address"`
 }
 
 func GetServerConfig() (*ServerConfig, error) {
@@ -60,6 +61,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("restore", false)
 	v.SetDefault("use_pprof", false)
 	v.SetDefault("trusted_subnet", "")
+	v.SetDefault("grpc_address", "localhost:3200")
 }
 
 // setupFlags настраивает флаги
@@ -77,6 +79,7 @@ func setupFlags(v *viper.Viper) {
 	pflag.String("crypto-key", "", "path to private key for decryption")
 	pflag.StringP("config", "c", "", "path to config file")
 	pflag.StringP("trusted-subnet", "t", "", "trusted subnet in CIDR notation")
+	pflag.String("grpc-address", "localhost:3200", "gRPC address and port")
 
 	// Привязываем флаги к Viper
 	v.BindPFlags(pflag.CommandLine)
@@ -105,4 +108,5 @@ func setupEnv(v *viper.Viper) {
 	v.BindEnv("use_pprof", "USE_PPROF")
 	v.BindEnv("config", "CONFIG")
 	v.BindEnv("trusted_subnet", "TRUSTED_SUBNET") // Добавлена привязка для trusted_subnet
+	v.BindEnv("grpc_address", "GRPC_ADDRESS")
 }

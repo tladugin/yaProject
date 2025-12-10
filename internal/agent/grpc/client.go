@@ -24,7 +24,7 @@ type GRPCClient struct {
 // NewGRPCClient создает нового gRPC клиента
 func NewGRPCClient(serverAddr string, localIP string, timeout time.Duration) (*GRPCClient, error) {
 	// Устанавливаем соединение с сервером
-	conn, err := grpc.Dial(
+	conn, err := grpc.NewClient(
 		serverAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*10)), // 10MB

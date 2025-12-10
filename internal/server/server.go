@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"github.com/go-chi/chi/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/tladugin/yaProject.git/internal/handler"
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 )
@@ -31,6 +33,7 @@ func RunHTTPServer(
 	flagKey *string,
 	flagAuditFile *string,
 	flagAuditURL *string,
+	ipChecker *IPChecker,
 ) {
 	defer wg.Done()
 
@@ -73,6 +76,9 @@ func RunHTTPServer(
 	r := chi.NewRouter()
 
 	// Регистрация middleware компонентов
+	if ipChecker != nil {
+		r.Use(IPCheckMiddleware(ipChecker))
+	}
 	r.Use(
 		DecryptMiddleware,                   // Расшифровывание запросов
 		repository.GzipMiddleware,           // Сжатие ответов
@@ -83,6 +89,7 @@ func RunHTTPServer(
 
 	// Определение маршрутов приложения
 	r.Route("/", func(r chi.Router) {
+
 		// Маршруты для работы с базой данных (если подключена)
 		if *flagDatabaseDSN != "" {
 			r.Get("/ping", ping.GetPing)                       // Проверка доступности БД
@@ -156,4 +163,83 @@ func PrintBuildInfo() {
 	log.Printf("Build version: %s", buildVersion)
 	log.Printf("Build date: %s", buildDate)
 	log.Printf("Build commit: %s", buildCommit)
+}
+
+// IPChecker проверяет IP-адрес на вхождение в доверенную подсеть
+type IPChecker struct {
+	trustedSubnet *net.IPNet
+}
+
+// NewIPChecker создает новый IPChecker
+func NewIPChecker(cidr string) (*IPChecker, error) {
+	if cidr == "" {
+		return &IPChecker{}, nil
+	}
+
+	_, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid CIDR notation: %w", err)
+	}
+
+	return &IPChecker{
+		trustedSubnet: ipnet,
+	}, nil
+}
+
+// IsAllowed проверяет, разрешен ли IP-адрес
+func (c *IPChecker) IsAllowed(ipStr string) (bool, error) {
+	// Если подсеть не задана, разрешаем все
+	if c.trustedSubnet == nil {
+		return true, nil
+	}
+
+	// Парсим IP-адрес
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false, fmt.Errorf("invalid IP address: %s", ipStr)
+	}
+
+	// Проверяем вхождение в подсеть
+	return c.trustedSubnet.Contains(ip), nil
+}
+
+// GetClientIP извлекает IP-адрес клиента из заголовка X-Real-IP
+func GetClientIP(r *http.Request) string {
+	// Получаем IP из заголовка X-Real-IP
+	realIP := r.Header.Get("X-Real-IP")
+
+	// Проверяем, что IP не пустой
+	if realIP == "" {
+		return ""
+	}
+
+	// Возвращаем IP из заголовка
+	return realIP
+}
+
+// IPCheckMiddleware проверяет IP-адрес клиента
+func IPCheckMiddleware(ipChecker *IPChecker) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Получаем IP-адрес клиента
+			clientIP := GetClientIP(r)
+
+			// Проверяем доступ
+			allowed, err := ipChecker.IsAllowed(clientIP)
+			if err != nil {
+				log.Printf("Failed to check IP: %v (IP: %s)", err, clientIP)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			if !allowed {
+				log.Printf("Access denied for IP: %s to path: %s", clientIP, r.URL.Path)
+				http.Error(w, "Access denied", http.StatusForbidden)
+				return
+			}
+
+			log.Printf("IP check passed for IP: %s to path: %s", clientIP, r.URL.Path)
+			next.ServeHTTP(w, r)
+		})
+	}
 }

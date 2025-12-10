@@ -13,6 +13,7 @@ import (
 	"github.com/tladugin/yaProject.git/internal/logger"
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"github.com/tladugin/yaProject.git/internal/server"
+	"github.com/tladugin/yaProject.git/internal/server/grpc"
 	_ "net/http/pprof"
 )
 
@@ -35,14 +36,19 @@ func main() {
 		syscall.SIGQUIT)
 	defer stop()
 
+	// Получаем конфигурацию
 	config, err := GetServerConfig()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	var wg sync.WaitGroup
+
 	// Запуск pprof сервера (если включен)
 	if config.UsePprof {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			sugar.Info("Starting pprof server on :6060")
 			if err := http.ListenAndServe(":6060", nil); err != nil && err != http.ErrServerClosed {
 				sugar.Errorw("Pprof server error", "error", err)
@@ -77,9 +83,18 @@ func main() {
 	}
 	defer producer.Close()
 
-	// Канал для graceful shutdown
-	stopProgram := make(chan struct{})
-	var wg sync.WaitGroup
+	// Инициализация проверки IP
+	ipChecker, err := server.NewIPChecker(config.TrustedSubnet)
+	if err != nil {
+		sugar.Fatalw("Failed to initialize IP checker", "error", err)
+	}
+	defer producer.Close()
+
+	if config.TrustedSubnet != "" {
+		sugar.Infow("IP checking enabled", "trusted_subnet", config.TrustedSubnet)
+	} else {
+		sugar.Info("IP checking disabled (no trusted subnet specified)")
+	}
 
 	// Запуск периодического бэкапа если не синхронный режим
 	if config.StoreInterval != 0 {
@@ -97,6 +112,16 @@ func main() {
 		repository.RunFinalBackupWithContext(ctx, storage, producer, config.StoreFile)
 	}()
 
+	// Запуск gRPC сервера
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sugar.Infow("Starting gRPC server", "address", config.GRPCAddress)
+		if err := grpc.RunGRPCServer(storage, config.GRPCAddress, config.TrustedSubnet, ctx); err != nil {
+			sugar.Errorw("gRPC server error", "error", err)
+		}
+	}()
+
 	// Запуск HTTP сервера
 	wg.Add(1)
 	go server.RunHTTPServer(
@@ -110,6 +135,7 @@ func main() {
 		&config.Key,
 		&config.AuditFile,
 		&config.AuditURL,
+		ipChecker,
 	)
 
 	sugar.Info("Server started. Press Ctrl+C to stop.")
@@ -118,10 +144,7 @@ func main() {
 	<-ctx.Done()
 	sugar.Info("Received shutdown signal")
 
-	// Инициируем graceful shutdown
-	close(stopProgram)
-
-	// Сохраняем финальный бэкап
+	// Сохраняем финальный бэкап (синхронно)
 	sugar.Info("Saving final backup...")
 	if err := repository.SaveBackup(storage, producer, config.StoreFile); err != nil {
 		sugar.Errorw("Failed to save final backup", "error", err)

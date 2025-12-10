@@ -24,7 +24,7 @@ import (
 )
 
 // SendMetric отправляет одиночную метрику на сервер
-func SendMetric(URL string, metricType string, storage *repository.MemStorage, i int, key string) error {
+func SendMetric(URL string, metricType string, storage *repository.MemStorage, i int, key string, localIP string) error {
 	// 1. Подготовка метрики
 	var metric models.Metrics
 
@@ -72,6 +72,11 @@ func SendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
 
+	// Добавляем заголовок X-Real-IP
+	if localIP != "" {
+		req.Header.Set("X-Real-IP", localIP)
+	}
+
 	// 5.1 Проверяем наличие ключа, если он есть, отправляем в заголовке хеш
 	if key != "" {
 		bytesBuf := buf.Bytes()
@@ -106,7 +111,7 @@ func SendMetric(URL string, metricType string, storage *repository.MemStorage, i
 }
 
 // SendMetricsBatch отправляет пачку метрик на сервер
-func SendMetricsBatch(URL string, metricType string, storage *repository.MemStorage, batchSize int, key string, pollCounter int64, FlagCryptoKey string) error {
+func SendMetricsBatch(URL string, metricType string, storage *repository.MemStorage, batchSize int, key string, pollCounter int64, FlagCryptoKey string, localIP string) error {
 	// 1. Подготовка URL
 	if !strings.HasPrefix(URL, "http://") && !strings.HasPrefix(URL, "https://") {
 		URL = "http://" + URL
@@ -134,14 +139,12 @@ func SendMetricsBatch(URL string, metricType string, storage *repository.MemStor
 		}
 
 		for i := 0; i < batchSize; i++ {
-			//delta := storage.CounterSlice()[i].Value
 			delta := pollCounter
 			metrics = append(metrics, models.Metrics{
 				MType: "counter",
 				ID:    storage.CounterSlice()[i].Name,
 				Delta: &delta,
 			})
-
 		}
 	default:
 		return fmt.Errorf("unknown metric type: %s", metricType)
@@ -160,7 +163,6 @@ func SendMetricsBatch(URL string, metricType string, storage *repository.MemStor
 	}
 
 	// 4.1 Шифрование данных при наличии ключа шифрования
-
 	if FlagCryptoKey != "" {
 		var publicKey *rsa.PublicKey
 
@@ -170,10 +172,11 @@ func SendMetricsBatch(URL string, metricType string, storage *repository.MemStor
 		fmt.Println("Using public key")
 
 		compressedData, err = EncryptData(compressedData, publicKey)
+		if err != nil {
+			return fmt.Errorf("encrypt data error: %w", err)
+		}
 	}
-	if err != nil {
-		return fmt.Errorf("encrypt data error: %w", err)
-	}
+
 	// 5. Создание запроса
 	req, err := http.NewRequest("POST", URL, bytes.NewReader(compressedData))
 	if err != nil {
@@ -183,6 +186,11 @@ func SendMetricsBatch(URL string, metricType string, storage *repository.MemStor
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept-Encoding", "gzip")
+
+	// Добавляем заголовок X-Real-IP
+	if localIP != "" {
+		req.Header.Set("X-Real-IP", localIP)
+	}
 
 	// 6. Добавление хеша, если есть ключ
 	if key != "" {
@@ -209,6 +217,95 @@ func SendMetricsBatch(URL string, metricType string, storage *repository.MemStor
 
 	return nil
 }
+
+// SendWithRetry отправляет метрики с повторными попытками при временных ошибках
+func SendWithRetry(url string, storage *repository.MemStorage, key string, pollCounter int64, FlagCryptoKey string, localIP string) error {
+	maxRetries := 3
+	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
+	var lastErr error
+
+	// Цикл повторных попыток
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Задержка перед повторной попыткой (кроме первой)
+		if attempt > 0 {
+			time.Sleep(retryDelays[attempt-1])
+		}
+
+		// Отправка gauge метрик
+		errG := SendMetricsBatch(url, "gauge", storage, len(storage.GaugeSlice()), key, pollCounter, FlagCryptoKey, localIP)
+		if errG != nil {
+			lastErr = errG
+		}
+
+		// Отправка counter метрик
+		errC := SendMetricsBatch(url, "counter", storage, len(storage.CounterSlice()), key, pollCounter, FlagCryptoKey, localIP)
+		if errC == nil {
+			return nil // Успешная отправка
+		}
+
+		lastErr = errC
+
+		// Проверяем, стоит ли повторять запрос
+		if !isRetriableError(errG) || !isRetriableError(errC) {
+			break // Не повторяем для неустранимых ошибок
+		}
+	}
+
+	return fmt.Errorf("after %d attempts: %w", maxRetries, lastErr)
+}
+
+// GetLocalIP возвращает локальный IP-адрес агента
+func GetLocalIP() (string, error) {
+	// Попытка 1: Получение IP через интерфейсы сети
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", fmt.Errorf("failed to get network interfaces: %w", err)
+	}
+
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if ok && !ipNet.IP.IsLoopback() && ipNet.IP.To4() != nil {
+			return ipNet.IP.String(), nil
+		}
+	}
+
+	// Попытка 2: DNS запрос для получения внешнего IP
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		// Попытка 3: Используем hostname
+		hostname, err := os.Hostname()
+		if err != nil {
+			return "", fmt.Errorf("failed to get any IP address: %w", err)
+		}
+
+		addrs, err := net.LookupIP(hostname)
+		if err != nil {
+			return "", fmt.Errorf("failed to lookup IP from hostname: %w", err)
+		}
+
+		for _, addr := range addrs {
+			if addr.To4() != nil && !addr.IsLoopback() {
+				return addr.String(), nil
+			}
+		}
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String(), nil
+}
+
+// GetLocalIPWithFallback возвращает локальный IP с fallback значением
+func GetLocalIPWithFallback() string {
+	ip, err := GetLocalIP()
+	if err != nil {
+		log.Printf("Warning: Failed to get local IP: %v", err)
+		return "127.0.0.1" // fallback на localhost
+	}
+	return ip
+}
+
+// Остальные функции остаются без изменений
 
 // LoadPublicKey загружает публичный ключ из файла
 func LoadPublicKey(keyPath string) (*rsa.PublicKey, error) {
@@ -290,42 +387,4 @@ func isRetriableError(err error) bool {
 	// - 5xx ошибка сервера
 	var netErr net.Error
 	return errors.As(err, &netErr)
-}
-
-// SendWithRetry отправляет метрики с повторными попытками при временных ошибках
-func SendWithRetry(url string, storage *repository.MemStorage, key string, pollCounter int64, FlagCryptoKey string) error {
-	maxRetries := 3
-	retryDelays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
-	var lastErr error
-
-	// Цикл повторных попыток
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Задержка перед повторной попыткой (кроме первой)
-		if attempt > 0 {
-			time.Sleep(retryDelays[attempt-1])
-		}
-
-		// Отправка gauge метрик
-		errG := SendMetricsBatch(url, "gauge", storage, len(storage.GaugeSlice()), key, pollCounter, FlagCryptoKey)
-		if errG != nil {
-			lastErr = errG
-		}
-
-		lastErr = errG
-
-		// Отправка counter метрик
-		errC := SendMetricsBatch(url, "counter", storage, len(storage.CounterSlice()), key, pollCounter, FlagCryptoKey)
-		if errC == nil {
-			return nil // Успешная отправка
-		}
-
-		lastErr = errC
-
-		// Проверяем, стоит ли повторять запрос
-		if !isRetriableError(errG) || !isRetriableError(errC) {
-			break // Не повторяем для неустранимых ошибок
-		}
-	}
-
-	return fmt.Errorf("after %d attempts: %w", maxRetries, lastErr)
 }

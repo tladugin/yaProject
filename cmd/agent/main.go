@@ -42,6 +42,10 @@ func main() {
 
 	// Получаем локальный IP-адрес
 	localIP := agent.GetLocalIPConfig(config)
+
+	var workerPool *agent.WorkerPool
+	var workerPoolErr error
+
 	if config.UseGRPC {
 		if localIP == "" {
 			sugar.Fatal("Local IP is required for gRPC mode")
@@ -56,9 +60,9 @@ func main() {
 			"ip", localIP,
 		)
 		// Создаем worker pool только для HTTP режима
-		workerPool, err := agent.NewWorkerPool(config.RateLimit)
-		if err != nil {
-			sugar.Fatal("Failed to create worker pool: ", err)
+		workerPool, workerPoolErr = agent.NewWorkerPool(config.RateLimit)
+		if workerPoolErr != nil {
+			sugar.Fatal("Failed to create worker pool: ", workerPoolErr)
 		}
 		defer workerPool.Shutdown()
 	}
@@ -78,9 +82,6 @@ func main() {
 			return agent.ReportMetricsWithContext(ctx, storage, config, reportDuration, nil, sugar, &pollCounter, localIP)
 		})
 	} else {
-		workerPool, _ := agent.NewWorkerPool(config.RateLimit)
-		defer workerPool.Shutdown()
-
 		g.Go(func() error {
 			return agent.ReportMetricsWithContext(ctx, storage, config, reportDuration, workerPool, sugar, &pollCounter, localIP)
 		})
@@ -94,6 +95,10 @@ func main() {
 		sugar.Info("Service shutdown by signal")
 	}
 
-	workerPool.Shutdown()
+	// Закрытие workerPool уже обрабатывается defer, но оставляем проверку
+	if workerPool != nil {
+		workerPool.Shutdown()
+	}
+
 	sugar.Info("Service shutdown completed successfully")
 }

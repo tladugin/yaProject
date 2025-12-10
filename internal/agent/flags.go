@@ -40,6 +40,11 @@ func GetAgentConfig() (*AgentConfig, error) {
 		if err := v.ReadInConfig(); err != nil {
 			return nil, fmt.Errorf("failed to read config file: %w", err)
 		}
+		// Если не удалось распарсить, оставляем значение по умолчанию
+	}
+
+	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok {
+		f.FlagCryptoKey = envCryptoKey
 	}
 
 	// Создаем и заполняем структуру конфигурации
@@ -104,4 +109,109 @@ func setupEnv(v *viper.Viper) {
 	v.BindEnv("crypto_key", "CRYPTO_KEY")
 	v.BindEnv("config", "CONFIG")
 	v.BindEnv("local_ip", "LOCAL_IP")
+}
+
+// LoadAgentConfig загружает конфигурацию агента из файла
+func LoadAgentConfig(configPath string) (*AgentConfig, error) {
+	if configPath == "" {
+		return &AgentConfig{}, nil
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var config AgentConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	return &config, nil
+}
+
+// GetAgentConfig возвращает финальную конфигурацию агента с учетом приоритетов
+func GetAgentConfig() (*AgentConfig, error) {
+	flags := ParseFlags()
+
+	// Получаем путь к конфигурационному файлу (флаг или переменная окружения)
+	configPath := flags.FlagConfigFile
+	if configPath == "" {
+		if envConfig, ok := os.LookupEnv("CONFIG"); ok {
+			configPath = envConfig
+		}
+	}
+
+	// Загружаем конфигурацию из файла
+	fileConfig, err := LoadAgentConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Создаем финальную конфигурацию
+	config := &AgentConfig{}
+
+	// Устанавливаем значения из файла конфигурации
+	if fileConfig != nil {
+		*config = *fileConfig
+	}
+
+	// Переопределяем значения из флагов (высший приоритет)
+	if flags.FlagRunAddr != "localhost:8080" || config.Address == "" {
+		config.Address = flags.FlagRunAddr
+	}
+	if flags.FlagReportIntervalTime != "10" || config.ReportInterval == "" {
+		config.ReportInterval = flags.FlagReportIntervalTime
+	}
+	if flags.FlagPollIntervalTime != "2" || config.PollInterval == "" {
+		config.PollInterval = flags.FlagPollIntervalTime
+	}
+	if flags.FlagKey != "" {
+		config.Key = flags.FlagKey
+	}
+	if flags.FlagRateLimit != 1 {
+		config.RateLimit = flags.FlagRateLimit
+	}
+	if flags.FlagUsePprof {
+		config.UsePprof = flags.FlagUsePprof
+	}
+	if flags.FlagCryptoKey != "" {
+		config.CryptoKey = flags.FlagCryptoKey
+	}
+
+	// Проверяем переменные окружения (средний приоритет)
+	// Используем LookupEnv для точного контроля
+	if envAddr, ok := os.LookupEnv("ADDRESS"); ok && flags.FlagRunAddr == "localhost:8080" {
+		config.Address = envAddr
+	}
+	if envReportInterval, ok := os.LookupEnv("REPORT_INTERVAL"); ok && flags.FlagReportIntervalTime == "10" {
+		config.ReportInterval = envReportInterval
+	}
+	if envPollInterval, ok := os.LookupEnv("POLL_INTERVAL"); ok && flags.FlagPollIntervalTime == "2" {
+		config.PollInterval = envPollInterval
+	}
+	if envKey, ok := os.LookupEnv("KEY"); ok && flags.FlagKey == "" {
+		config.Key = envKey
+	}
+	if envRateLimit, ok := os.LookupEnv("RATE_LIMIT"); ok && flags.FlagRateLimit == 1 {
+		if rateLimit, err := strconv.Atoi(envRateLimit); err == nil {
+			config.RateLimit = rateLimit
+		}
+	}
+	if envCryptoKey, ok := os.LookupEnv("CRYPTO_KEY"); ok && flags.FlagCryptoKey == "" {
+		config.CryptoKey = envCryptoKey
+	}
+
+	// Устанавливаем значения по умолчанию если не установлены
+	if config.ReportInterval == "" {
+		config.ReportInterval = "10"
+	}
+	if config.PollInterval == "" {
+		config.PollInterval = "2"
+	}
+	if config.RateLimit == 0 {
+		config.RateLimit = 1
+	}
+
+	return config, nil
 }

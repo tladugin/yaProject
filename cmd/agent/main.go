@@ -94,5 +94,6 @@ func main() {
 		sugar.Info("Service shutdown by signal")
 	}
 
+	workerPool.Shutdown()
 	sugar.Info("Service shutdown completed successfully")
 }

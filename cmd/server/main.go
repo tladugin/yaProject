@@ -88,6 +88,7 @@ func main() {
 	if err != nil {
 		sugar.Fatalw("Failed to initialize IP checker", "error", err)
 	}
+	defer producer.Close()
 
 	if config.TrustedSubnet != "" {
 		sugar.Infow("IP checking enabled", "trusted_subnet", config.TrustedSubnet)

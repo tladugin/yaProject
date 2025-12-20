@@ -32,17 +32,40 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	workerPool, err := agent.NewWorkerPool(config.RateLimit)
-	if err != nil {
-		sugar.Fatal("Failed to create worker pool: ", err)
-	}
-
+	// Преобразуем интервалы
 	pollDuration, _ := time.ParseDuration(config.PollInterval + "s")
 	reportDuration, _ := time.ParseDuration(config.ReportInterval + "s")
 
 	storage := repository.NewMemStorage()
 	var pollCounter int64 = 0
 	storage.AddCounter("PollCount", 0)
+
+	// Получаем локальный IP-адрес
+	localIP := agent.GetLocalIPConfig(config)
+
+	var workerPool *agent.WorkerPool
+	var workerPoolErr error
+
+	if config.UseGRPC {
+		if localIP == "" {
+			sugar.Fatal("Local IP is required for gRPC mode")
+		}
+		sugar.Infow("Using gRPC mode",
+			"server", config.GRPCAddress,
+			"ip", localIP,
+		)
+	} else {
+		sugar.Infow("Using HTTP mode",
+			"server", config.Address,
+			"ip", localIP,
+		)
+		// Создаем worker pool только для HTTP режима
+		workerPool, workerPoolErr = agent.NewWorkerPool(config.RateLimit)
+		if workerPoolErr != nil {
+			sugar.Fatal("Failed to create worker pool: ", workerPoolErr)
+		}
+		defer workerPool.Shutdown()
+	}
 
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -54,9 +77,15 @@ func main() {
 		return agent.CollectSystemMetricsWithContext(ctx, storage, pollDuration, sugar)
 	})
 
-	g.Go(func() error {
-		return agent.ReportMetricsWithContext(ctx, storage, config.Address, config.Key, reportDuration, workerPool, sugar, &pollCounter, config.CryptoKey)
-	})
+	if config.UseGRPC {
+		g.Go(func() error {
+			return agent.ReportMetricsWithContext(ctx, storage, config, reportDuration, nil, sugar, &pollCounter, localIP)
+		})
+	} else {
+		g.Go(func() error {
+			return agent.ReportMetricsWithContext(ctx, storage, config, reportDuration, workerPool, sugar, &pollCounter, localIP)
+		})
+	}
 
 	sugar.Info("Agent started. Press Ctrl+C to stop.")
 
@@ -66,6 +95,10 @@ func main() {
 		sugar.Info("Service shutdown by signal")
 	}
 
-	workerPool.Shutdown()
+	// Закрытие workerPool уже обрабатывается defer, но оставляем проверку
+	if workerPool != nil {
+		workerPool.Shutdown()
+	}
+
 	sugar.Info("Service shutdown completed successfully")
 }

@@ -63,7 +63,7 @@ func SendMetric(URL string, metricType string, storage *repository.MemStorage, i
 	}
 
 	// 5. Создание и настройка запроса
-	req, err := http.NewRequest("POST", URL, buf)
+	req, err := http.NewRequest(http.MethodPost, URL, buf)
 	if err != nil {
 		return fmt.Errorf("request creation failed: %w", err)
 	}
@@ -178,7 +178,7 @@ func SendMetricsBatch(URL string, metricType string, storage *repository.MemStor
 	}
 
 	// 5. Создание запроса
-	req, err := http.NewRequest("POST", URL, bytes.NewReader(compressedData))
+	req, err := http.NewRequest(http.MethodPost, URL, bytes.NewReader(compressedData))
 	if err != nil {
 		return fmt.Errorf("request creation failed: %w", err)
 	}

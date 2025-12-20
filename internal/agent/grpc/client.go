@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/tladugin/yaProject.git/internal/proto"
-
 	"github.com/tladugin/yaProject.git/internal/repository"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
